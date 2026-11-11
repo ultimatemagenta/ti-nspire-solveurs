@@ -367,7 +367,7 @@ local menuPrincipal
 local TITRE_APP = "Solveur"
 local function historiqueResultats()
   local it = {}
-  for i = #ARCH, 1, -1 do
+  for i = #ARCH, math.max(1, #ARCH - 8), -1 do   -- 9 derniers : un menu tient sur un ecran
     local d = ARCH[i]
     table.insert(it, {d.titre, function() vue = {haut = 0, doc = d.doc, titre = d.titre}; ecran = "vue"; inval() end})
   end
@@ -408,10 +408,99 @@ local function fmt(x, dec)
 end
 
 
+------------------------------------------------------------------ recherche d'un solveur : index + moteur (ecran dans socle_fin)
+-- Chaque classeur remplit INDEX_SOLVEURS (format impose, partage par les classeurs compta et maths) :
+--   table.insert(INDEX_SOLVEURS, {titre = "Ducroire", chemin = "2·3", forts = {"ducroire"}, mots = {"creance", "client"},
+--     si = "un seul poste : le ducroire", ouvrir = function() … end})
+-- forts = mots propres au solveur (3 points par mot tape qui y colle) ; mots = mots partages, sigles (1 point).
+-- Ecrire des radicaux en minuscules sans accents : « maxim » couvre maximal et maximum, « graph » couvre graphiquement.
+-- Une chaine « a b c » est acceptee a la place d'une liste. Les mots du titre comptent comme des « mots ».
+-- La saisie est normalisee (minuscules, sans accents, mots vides retires) ; « si » = ligne grise sous le resultat (45 car. max).
+INDEX_SOLVEURS = {}
+CHERCHE = {}
+do
+  -- 2e octet UTF-8 (apres \195) modulo 32 -> lettre sans accent (A-grave … y-trema)
+  local ACC = {"a", "a", "a", "a", "a", "a", "ae", "c", "e", "e", "e", "e", "i", "i", "i", "i",
+    "d", "n", "o", "o", "o", "o", "o", " ", "o", "u", "u", "u", "u", "y", " ", "y"}
+  local STOP = {}
+  for m in ("a au aux avec c ce ces cet cette chf d dans de des du elle en est et il l la le les leur leurs n ne on ou par pas " ..
+    "pour qu que quel quelle qui s sa se ses si son sont sur un une y vous votre vos nous ci suivant suivante suivants suivantes " ..
+    "calculer calculez determiner determinez trouver trouvez donner donnez veuillez faut peut afin ainsi encore aide " ..
+    "chacun chacune tous toutes tout toute"):gmatch("%S+") do STOP[m] = true end
+  CHERCHE.STOP = STOP
+
+  local function normaliser(s)
+    s = tostring(s or "")
+    s = s:gsub("\197[\146\147]", "oe")
+    s = s:gsub("\195([\128-\191])", function(b) return ACC[b:byte() % 32 + 1] end)
+    s = s:gsub("[\192-\223][\128-\191]", " "):gsub("[\224-\239][\128-\191][\128-\191]", " ")
+    return (s:lower():gsub("[^a-z0-9/]+", " "))
+  end
+  CHERCHE.normaliser = normaliser
+
+  -- mots tapes : normalises, sans mots vides ni doublons
+  local function motsDe(s)
+    local t, vu = {}, {}
+    for m in normaliser(s):gmatch("%S+") do
+      if not STOP[m] and not m:match("^0+$") and not vu[m] then vu[m] = true; t[#t + 1] = m end
+    end
+    return t
+  end
+  CHERCHE.motsDe = motsDe
+
+  -- un mot tape t colle-t-il au mot d'index w ?
+  local function colle(t, w)
+    if #t <= 2 or #w <= 2 then return t == w end      -- sigles : egalite stricte (pm, rl, fp, ca)
+    return w:sub(1, #t) == t                          -- debut de mot : « duc » -> « ducroire »
+      or (#w >= 4 and t:sub(1, #w) == w)              -- mot flechi : « titres » -> « titre », « graphiquement » -> « graph »
+  end
+  CHERCHE.colle = colle
+
+  local function liste(x)
+    local out = {}
+    if type(x) ~= "table" then x = {x} end
+    for _, s in ipairs(x) do for m in normaliser(s):gmatch("%S+") do out[#out + 1] = m end end
+    return out
+  end
+  local function preparer(e)
+    if e._f then return end
+    e._f = liste(e.forts)
+    e._m = liste(e.mots)
+    for m in normaliser(e.titre):gmatch("%S+") do if not STOP[m] then e._m[#e._m + 1] = m end end
+  end
+
+  -- liste classee : {titre, chemin, si, ouvrir, score, nf (mots forts touches), rang (ordre de l'index)}
+  function CHERCHE.chercher(texte)
+    local tape, res = motsDe(texte), {}
+    if #tape == 0 then return res end
+    for i, e in ipairs(INDEX_SOLVEURS) do
+      preparer(e)
+      local nf, nm = 0, 0
+      for _, t in ipairs(tape) do
+        local fort = false
+        for _, w in ipairs(e._f) do if colle(t, w) then fort = true; break end end
+        if fort then nf = nf + 1
+        else for _, w in ipairs(e._m) do if colle(t, w) then nm = nm + 1; break end end end
+      end
+      if nf + nm > 0 then
+        res[#res + 1] = {titre = e.titre, chemin = e.chemin, si = e.si, ouvrir = e.ouvrir, score = 3 * nf + nm, nf = nf, rang = i}
+      end
+    end
+    table.sort(res, function(a, b)
+      if a.score ~= b.score then return a.score > b.score end
+      if a.nf ~= b.nf then return a.nf > b.nf end
+      return a.rang < b.rang
+    end)
+    return res
+  end
+end
+
 -- ===== module 00_commun.lua
 -- 00_commun.lua : outils communs du classeur compta (charge en premier, apres le socle)
 TITRE_APP = "Compta – solveur"
 MENUS_COMPTA = {}   -- chaque module ajoute : table.insert(MENUS_COMPTA, {ordre = n, titre = "…", items = {{"libellé", fonction}, …}})
+-- entrée indexée pour la recherche : {"libellé", fonction, forts = "mots forts", mots = "mots partagés", si = "à choisir si…"}
+-- (99_menu en tire INDEX_SOLVEURS, voir CONVENTIONS-MODULES.md)
 do   -- tout dans un bloc : limite de 200 variables locales du script principal
 
 -- nombres : accepte 12'500, 12 500, 12500.5, 12,5 (virgule décimale), 15% -> 0.15, expressions simples (1200*3, 15+10+30)
@@ -550,10 +639,16 @@ local function commentaire(valeur, norme, ok, consequence)
   G("Commentaire : " .. valeur .. (norme and (" ; valeur indicative " .. norme) or "") .. " → " .. (ok and "satisfaisant" or "insuffisant") .. ". " .. (consequence or ""))
 end
 
+-- sous-menu : entrée {libellé, fonction, sous = items} ; 99_menu parcourt « sous » pour construire l'index de recherche
+-- (chemins « 2·3·1 » toujours cohérents avec les menus). 9 entrées au plus par menu (un écran, touches 1-9).
+local function sousMenu(lib, titre, items)
+  return {lib, function() MENU = {titre = titre, items = items}; sel = 1; ecran = "menu"; inval() end, sous = items}
+end
+
 -- rend les helpers visibles aux modules suivants
 COMMUN = {num = num, pct = pct, dec2 = dec2, montant = montant, estExpr = estExpr, exprTexte = exprTexte,
   lireChamps = lireChamps, formulaire = formulaire, questionnaire = questionnaire, calc = calc, commentaire = commentaire,
-  aideChamps = aideChamps}
+  aideChamps = aideChamps, sousMenu = sousMenu}
 end
 
 -- ===== module 10_aide.lua
@@ -585,7 +680,7 @@ do
     return {lib, f}
   end
   local function sousMenu(lib, titre, items)
-    return {lib, function() MENU = {titre = titre, items = items}; sel = 1; ecran = "menu"; inval() end}
+    return COMMUN.sousMenu(lib, titre, items)
   end
 
   ------------------------------------------------------------------ révision du 12.11
@@ -924,7 +1019,8 @@ do
   end)
 
   local tableaux = sousMenu("Tableaux vides", "Tableaux vides", {
-    tBilan, tCR2, tCR3, tCRliste, tRL, tStock, tTitres, tSeuil, tRatios, tLiq, tTFT, tCMP,
+    tBilan, sousMenu("Comptes de résultat", "Comptes de résultat (vides)", {tCR2, tCR3, tCRliste}), tRL, tStock, tTitres, tSeuil, tRatios,
+    sousMenu("Trésorerie (57)", "Trésorerie (vides)", {tLiq, tTFT}), tCMP,
   })
 
   ------------------------------------------------------------------ schémas
@@ -1391,8 +1487,13 @@ do
     G("Ce classeur ne va pas au test (calculatrice simple, sans résumé) : tout ici doit être su par cœur.")
   end)
 
+  -- quelques écrans indexés pour la recherche (consignes « nommer les droites », « base légale », « expliquez ce que… »)
+  sGraphe.forts, sGraphe.mots, sGraphe.si = "nommer accolade quatre", "droite graph mesurer seuil", "nommer les 4 droites, les accolades"
+  co.forts, co.mots, co.si = "co article legal loi", "base choix evaluation 960", "base légale d'une évaluation"
+  phrases.forts, phrases.mots, phrases.si = "phrase commentaire", "expliquer signifient commenter interpretation ratio", "rédiger le commentaire d'un ratio"
+  table.insert(definitions.sous, co)   -- Articles du CO rangés sous Définitions (aide-mémoire : 9 entrées)
   table.insert(MENUS_COMPTA, {ordre = 10, titre = "Aide-mémoire", items = {
-    revision, tableaux, schemas, ratiosMenu, formules, definitions, co, pieges, phrases, sources,
+    revision, tableaux, schemas, ratiosMenu, formules, definitions, pieges, phrases, sources,
   }})
 end
 
@@ -2137,33 +2238,337 @@ do
   end
   SOLVEURS.theorieRL = theorie
 
+  ---------------------------------------------------------------- A14 bilan publié → bilan interne ; A15 répartition du bénéfice
+  -- saisie par COMMUN.questionnaire, un poste par question (« nom=montant »)
+  local function cle(s) return (CHERCHE.normaliser(s):gsub("%s+", " "):gsub("^ ", ""):gsub(" $", "")) end
+  local function poste(s)
+    local nom, val = tostring(s or ""):match("^%s*(.-)%s*=%s*(.-)%s*$")
+    if not nom or nom == "" then return nil end
+    return {nom = nom, v = evaluer(val), brut = val}
+  end
+  local function validerPoste(t)
+    if t == "" then return nil end
+    local p = poste(t)
+    if not p or (p.v == nil and not cle(p.brut):find("solde", 1, true)) then return "Format attendu : nom=montant (ex. Stock de marchandises=100)." end
+  end
+  local function lireTextes(brut, champs)
+    local v = {}
+    for _, c in ipairs(champs) do v[c.cle] = c.defaut or "" end
+    for paire in tostring(brut or ""):gmatch("[^;]+") do
+      local k, val = paire:match("^%s*([%w_]+)%s*=%s*(.-)%s*$")
+      if k then v[k] = val end
+    end
+    return v
+  end
+  local function lirePostes(v, prefixe, n)
+    local t = {}
+    for i = 1, n do local p = poste(v[prefixe .. i]); if p and p.v then table.insert(t, p) end end
+    return t
+  end
+  -- poste du bilan désigné par le nom d'une RL (« Stock » -> « Stock de marchandises »)
+  local function trouverPoste(lignes, nom)
+    local k = cle(nom)
+    for _, l in ipairs(lignes) do if cle(l.nom) == k then return l end end
+    for _, l in ipairs(lignes) do local c = cle(l.nom); if c:sub(1, #k) == k or k:sub(1, #c) == c then return l end end
+    local m1 = k:match("^(%S+)")
+    if m1 and #m1 >= 4 then for _, l in ipairs(lignes) do if cle(l.nom):find(m1, 1, true) then return l end end end
+  end
+  local function contient(nom, liste)
+    local c = " " .. cle(nom) .. " "
+    for _, m in ipairs(liste) do if c:find(m, 1, true) then return true end end
+    return false
+  end
+  local AI_MOTS = {"mobil", "immeub", " fac ", "machin", "equip", "materi", "vehic", "terrain", "install", "particip", "brevet", "immob", "agencement"}
+  local function sectionPassif(nom)
+    if contient(nom, {"capital", "reserve", "benefice", "perte", "report", "resultat"}) then return 3 end
+    if contient(nom, {"hypoth", "emprunt", "long", " lt ", "obligation", " pret"}) then return 2 end
+    return 1
+  end
+  -- un côté du bilan en sections, avec totaux par colonne ; lignes = {nom, x1, x2…, txt = {textes imposés}}
+  local function fpar(x) if x < 0 then return "(" .. f(-x) .. ")" end; return f(x) end   -- deduction : (20)
+  local function grilleCote(titre, entetes, secs, ncol, signes)
+    local L, tot = {}, {}
+    for j = 1, ncol do tot[j] = 0 end
+    for _, sct in ipairs(secs) do
+      if #sct[2] > 0 then
+        table.insert(L, {sct[1], gras = true, fond = true})
+        for _, l in ipairs(sct[2]) do
+          local t = {l[1], retrait = 1}
+          for j = 1, ncol do
+            t[j + 1] = (l.txt and l.txt[j]) or (l[j + 1] and fpar(l[j + 1]) or "")
+            tot[j] = tot[j] + (l[j + 1] or 0)
+          end
+          table.insert(L, t)
+        end
+      end
+    end
+    local t = {"Total", gras = true, trait = true}
+    for j = 1, ncol do t[j + 1] = (signes and signes[j]) and fs(tot[j]) or f(tot[j]) end
+    table.insert(L, t)
+    GRILLE(titre, L, {entetes = entetes})
+    return tot
+  end
+  local function sectionsActif(act, ligne)
+    local ac, ai = {}, {}
+    for _, l in ipairs(act) do table.insert(contient(l.nom, AI_MOTS) and ai or ac, ligne(l)) end
+    return {{"Actifs circulants", ac}, {"Actifs immobilisés", ai}}
+  end
+  local function sectionsPassif(pas, ligne)
+    local s = {{}, {}, {}}
+    for _, l in ipairs(pas) do table.insert(s[l.sec or sectionPassif(l.nom)], ligne(l)) end
+    return {{"Capitaux étrangers à ct", s[1]}, {"Capitaux étrangers à lt", s[2]}, {"Capitaux propres", s[3]}}
+  end
+  local function apur(x) if not x or math.abs(x) < 1e-9 then return "" end; return fs(x) end
+
+  local AIDE_ACTIF = "Un poste par question, nom=montant. Déduction en négatif : Ducroire=-20, FAC s/immeubles=-960. Vide = aucun poste."
+  local AIDE_PASSIF = "Un poste par question, nom=montant. Capital, réserves, bénéfice → fonds propres ; emprunt, hypothèque → CE à lt ; le reste → CE à ct."
+  local function champsPostes(ch, prefixe, lib, aide, defauts, n)
+    for i = 1, n do
+      table.insert(ch, {cle = prefixe .. i, lib = lib .. " " .. i .. " (nom=montant)", defaut = defauts[i] or "", texte = true, opt = true,
+        aide = aide, valider = validerPoste})
+    end
+  end
+
+  local CH_BI = {}
+  champsPostes(CH_BI, "a", "Actif publié", AIDE_ACTIF, {"Liquidités=12", "Créances clients=180", "Ducroire=-20", "Stock de marchandises=100", "Équipement=400"}, 8)
+  champsPostes(CH_BI, "p", "Passif publié", AIDE_PASSIF, {"Dettes fournisseurs=18", "Emprunt à long terme=200", "Capital-actions=300", "Réserves=50", "Bénéfice d'exploitation=104"}, 7)
+  champsPostes(CH_BI, "r", "RL sur un poste", "RL = valeur interne − valeur publiée (début du nom suffisant : Stock=20). Ducroire surévalué de 12 : Ducroire=12. Provision surévaluée de 30 : Provision=30.",
+    {"Ducroire=12", "Stock de marchandises=20", "Équipement=20"}, 5)
+  table.insert(CH_BI, {cle = "rli", lib = "RL au début de l'exercice (total)", defaut = "0", aide = "RL du bilan initial : ligne « Réserves latentes » des fonds propres ; seule la variation (finales − initiales) va au bénéfice. 37.5 : 0 (supposé)."})
+
+  -- écriture d'une RL : dissolution « poste / charge », constitution « charge / poste » (37.5, 37.15)
+  local function journalRL(nom, cote, constitution)
+    local charge
+    if cote == "p" then charge = "charge concernée"
+    elseif contient(nom, {"stock", "marchandise"}) then charge = constitution and "Variation de stocks" or "Charges de marchandises"
+    elseif contient(nom, {"ducroire", "provision", "creance"}) then charge = "Pertes s/créances"
+    elseif contient(nom, {"immeuble"}) and constitution then charge = "Charges d'immeubles"
+    else charge = "Amortissements" end
+    if constitution then return charge .. " / " .. nom, charge end
+    return nom .. " / " .. charge, charge
+  end
+
+  local function bilanInterne(brut)
+    local v = lireTextes(brut, CH_BI)
+    local act, pas, rls = lirePostes(v, "a", 8), lirePostes(v, "p", 7), lirePostes(v, "r", 5)
+    local rli = evaluer(v.rli) or 0
+    vider()
+    T("Bilan publié → bilan interne")
+    G("Méthode (modèle : 37.5 ; 37.4-37.6) : valeur interne = valeur publiée + apurement (la RL). Une RL sur un actif l'augmente ; un ducroire " ..
+      "surévalué diminue ; une provision (passif) surévaluée diminue. La variation des RL de l'exercice s'ajoute au bénéfice ; les RL " ..
+      "du début forment la ligne « Réserves latentes ». Total interne = total publié + RL.")
+    local tot = 0
+    local lignesRL = {}
+    for _, r in ipairs(rls) do
+      local l, cote = trouverPoste(act, r.nom), "a"
+      if not l then l, cote = trouverPoste(pas, r.nom), "p" end
+      if not l then A("RL « " .. r.nom .. " » : aucun poste du bilan ne porte ce nom (ignorée).")
+      else
+        l.ap = (l.ap or 0) + (cote == "a" and r.v or -r.v)
+        tot = tot + r.v
+        table.insert(lignesRL, {l.nom, r.v, cote})
+      end
+    end
+    local bn
+    for _, l in ipairs(pas) do if contient(l.nom, {"benefice", "resultat"}) and not contient(l.nom, {"report", "reserve"}) then bn = l end end
+    if not bn then A("Aucun poste « Bénéfice … » au passif : variation des RL portée sur une ligne à part."); bn = {nom = "Bénéfice", v = 0, sec = 3}; table.insert(pas, bn) end
+    bn.ap = (bn.ap or 0) + tot - rli
+
+    T("Tableau des réserves latentes")
+    local L = {}
+    for _, r in ipairs(lignesRL) do table.insert(L, {r[1], rli == 0 and "0" or "", f(r[2]), ""}) end
+    table.insert(L, {"Total", f(rli), f(tot), fs(tot - rli), gras = true, trait = true})
+    GRILLE("RL", L, {entetes = {"RL sur…", "Initial", "Final", "Variation"}})
+    if rli == 0 then G("Bilan initial : 0 (supposé), comme dans le corrigé 37.5.") end
+
+    T("Journal : dissolution des RL")
+    for _, r in ipairs(lignesRL) do X((journalRL(r[1], r[3], false)) .. " : " .. f(r[2])) end
+    COMMUN.calc("Bénéfice interne", "bénéfice publié + variation des RL", f(bn.v) .. " + " .. fp(tot - rli), f(bn.v + tot - rli))
+
+    T("Bilan final (avant répartition)")
+    local function ligne(l) return {l.nom, l.v, l.ap or 0, l.v + (l.ap or 0), txt = {nil, apur(l.ap)}} end
+    local ta = grilleCote("Actif", {"", "Publiée", "Apur.", "Interne"}, sectionsActif(act, ligne), 3, {false, true})
+    local secs = sectionsPassif(pas, ligne)
+    table.insert(secs[3][2], {"Réserves latentes", 0, rli, rli, txt = {"--", apur(rli), f(rli)}})
+    local tp = grilleCote("Passif", {"", "Publiée", "Apur.", "Interne"}, secs, 3, {false, true})
+    if math.abs(ta[1] - tp[1]) > 1e-6 then A("Bilan publié déséquilibré : actif " .. f(ta[1]) .. " ≠ passif " .. f(tp[1]) .. ". Vérifier les postes.") end
+    COMMUN.calc("Total interne", "total publié + RL", f(ta[1]) .. " + " .. fp(tot), f(ta[3]))
+    G("Défaut = 37.5 (prof : total 672 → 724 ; BN 104 → 156 ; ducroire (20) → (8) ; stock 100 → 120 ; équipement 400 → 420).")
+    montrer("Bilan interne")
+  end
+  SOLVEURS.bilanInterne = bilanInterne
+
+  local CH_REP = {
+    {cle = "bni", lib = "Bénéfice interne de l'exercice", defaut = "595", aide = "Bénéfice net de l'exercice au CR interne, avant les RL à constituer. 37.15 : 595."},
+    {cle = "cap", lib = "Capital-actions", defaut = "2000", aide = "Sert au dividende en % du capital."},
+    {cle = "div", lib = "Dividende (% du capital, ou montant)", defaut = "15%", aide = "15% = 15 % du capital-actions ; un montant (300) est pris tel quel."},
+    {cle = "res", lib = "Attribution à la réserve légale", defaut = "45", aide = "Augmentation de la réserve légale issue du bénéfice."},
+    {cle = "tan", lib = "Tantièmes", defaut = "50", aide = "Part du bénéfice versée au conseil d'administration (0 si aucune)."},
+    {cle = "bra", lib = "Bénéfice reporté au bilan (ancien)", defaut = "10", aide = "Solde du compte Bénéfice reporté avant la répartition."},
+    {cle = "brn", lib = "Bénéfice reporté voulu (nouveau)", defaut = "15", aide = "Solde voulu après la répartition : le bénéfice nécessaire en contient l'augmentation (nouveau − ancien)."},
+  }
+  champsPostes(CH_REP, "r", "RL à constituer", "poste=montant ou calcul : Stock de marchandises=219/3 (maximum autorisé : 1/3), Ducroire=1500*5%-40 (provision de 5 % moins le ducroire existant). Le poste =solde reçoit le reste.",
+    {"Stock de marchandises=219/3", "Ducroire=1500*5%-40", "FAC s/immeubles=40", "Mobilier=solde"}, 6)
+  champsPostes(CH_REP, "a", "Actif interne", "Bilan interne avant répartition, pour le bilan publié après répartition (vide partout = pas de bilan). Déduction en négatif : Ducroire=-40.",
+    {"Caisse=150", "Banque=450", "Titres=80", "Créances clients=1500", "Ducroire=-40", "Stock de marchandises=219", "Actifs transitoires=11", "Mobilier=400", "Immeubles=3250", "FAC s/immeubles=-960"}, 12)
+  champsPostes(CH_REP, "p", "Passif interne", "Bilan interne avant répartition, avec le bénéfice de l'exercice. " .. AIDE_PASSIF,
+    {"Dettes fournisseurs=615", "Dette hypothécaire=1640", "Capital-actions=2000", "Réserve légale s/bénéfices=200", "Bénéfice reporté=10", "Bénéfice de l'exercice=595"}, 8)
+
+  local function repartition(brut)
+    local v = lireTextes(brut, CH_REP)
+    local bni, cap, d = evaluer(v.bni) or 0, evaluer(v.cap) or 0, evaluer(v.div) or 0
+    local res, tan, bra, brn = evaluer(v.res) or 0, evaluer(v.tan) or 0, evaluer(v.bra) or 0, evaluer(v.brn) or 0
+    local divM = d <= 1 and d * cap or d
+    vider()
+    T("Répartition du bénéfice, RL à créer")
+    G("Méthode (modèle : 37.15) : a) bénéfice nécessaire = ce que la répartition distribue ou garde (dividendes + réserve légale + tantièmes " ..
+      "+ augmentation du bénéfice reporté) ; b) RL à constituer = bénéfice interne − bénéfice nécessaire, réparties poste par poste " ..
+      "(un poste prend le solde) ; c) BN publié = bénéfice nécessaire ; d) journal de répartition ; e) bilan publié après répartition.")
+    T("a) Bénéfice nécessaire (publié)")
+    local nec = divM + res + tan + (brn - bra)
+    GRILLE("Bénéfice nécessaire", {
+      {d <= 1 and ("Dividendes " .. pc(d) .. " × " .. f(cap)) or "Dividendes", f(divM)},
+      {"Augm. réserve légale", f(res)}, {"Tantièmes", f(tan)},
+      {"Augm. BR (" .. f(brn) .. " − " .. f(bra) .. ")", f(brn - bra)},
+      {"Bénéfice nécessaire", f(nec), gras = true, trait = true}})
+    COMMUN.calc("Bénéfice nécessaire", "dividendes + réserve légale + tantièmes + (BR nouveau − BR ancien)",
+      f(divM) .. " + " .. f(res) .. " + " .. f(tan) .. " + (" .. f(brn) .. " − " .. f(bra) .. ")", f(nec))
+    T("b) Réserves latentes à constituer")
+    local rl = bni - nec
+    COMMUN.calc("RL à constituer", "bénéfice interne − bénéfice nécessaire", f(bni) .. " − " .. f(nec), f(rl))
+    if rl < -1e-9 then A("Bénéfice interne inférieur au bénéfice nécessaire : il faudrait dissoudre " .. f(-rl) .. " de RL, pas en constituer.") end
+    local postes, somme, solde = {}, 0, nil
+    for i = 1, 6 do
+      local p = poste(v["r" .. i])
+      if p then
+        if p.v == nil and cle(p.brut):find("solde", 1, true) then solde = p; table.insert(postes, p)
+        elseif p.v then somme = somme + p.v; table.insert(postes, p) end
+      end
+    end
+    if solde then solde.v = rl - somme; solde.calc = f(rl) .. " − " .. f(somme)
+    elseif math.abs(somme - rl) > 1e-6 then A("Les RL saisies (" .. f(somme) .. ") ≠ RL à constituer (" .. f(rl) .. ") : ajouter un poste =solde.") end
+    local L = {}
+    for _, p in ipairs(postes) do
+      local calcul = p.calc or (COMMUN.estExpr(p.brut) and COMMUN.exprTexte(p.brut) or "")
+      X((journalRL(p.nom, "a", true)) .. " : " .. (calcul ~= "" and (calcul .. " = ") or "") .. f(p.v))
+      table.insert(L, {p.nom, f(p.v)})
+    end
+    table.insert(L, {"Total des RL", f(rl), gras = true, trait = true})
+    GRILLE("RL constituées", L, {entetes = {"Poste", "Montant"}})
+    T("c) Compte de résultat publié")
+    COMMUN.calc("BN publié", "BN interne − RL constituées", f(bni) .. " − " .. f(rl), f(bni - rl))
+    local ch = {}
+    for _, p in ipairs(postes) do local _, c = journalRL(p.nom, "a", true); table.insert(ch, c .. " +" .. f(p.v)) end
+    G("Au CR publié, chaque charge est augmentée de sa RL : " .. table.concat(ch, " ; ") .. ". Les produits ne changent pas.")
+    T("d) Journal : répartition du bénéfice")
+    GRILLE("Répartition", {
+      {"Résultat (BN publié)", f(nec), ""}, {"Bénéfice reporté (ancien)", f(bra), ""},
+      {"Dividendes", "", f(divM)}, {"Tantièmes", "", f(tan)}, {"Réserve légale s/bén.", "", f(res)}, {"Bénéfice reporté", "", f(brn)},
+      {"Total", f(nec + bra), f(divM + tan + res + brn), gras = true, trait = true}}, {entetes = {"Compte", "Débit", "Crédit"}})
+    local act, pas = lirePostes(v, "a", 12), lirePostes(v, "p", 8)
+    if #act > 0 and #pas > 0 then
+      T("e) Bilan publié après répartition")
+      for _, p in ipairs(postes) do
+        local l = trouverPoste(act, p.nom)
+        if l then l.v = l.v - p.v else A("RL « " .. p.nom .. " » : poste introuvable à l'actif.") end
+      end
+      local pas2 = {}
+      local resOk, brOk = false, false
+      for _, l in ipairs(pas) do
+        if contient(l.nom, {"report"}) then table.insert(pas2, {nom = l.nom, v = brn}); brOk = true
+        elseif contient(l.nom, {"reserve"}) then
+          if not resOk and (contient(l.nom, {"legale"}) or not contient(l.nom, {"latente"})) then
+            table.insert(pas2, {nom = l.nom, v = l.v + res}); resOk = true
+          else table.insert(pas2, {nom = l.nom, v = l.v}) end
+        elseif contient(l.nom, {"benefice", "resultat"}) then
+          -- bénéfice de l'exercice : entièrement réparti, il quitte le bilan
+        else table.insert(pas2, {nom = l.nom, v = l.v}) end
+      end
+      if not resOk and res ~= 0 then table.insert(pas2, {nom = "Réserve légale s/bénéfices", v = res, sec = 3}) end
+      if not brOk and brn ~= 0 then table.insert(pas2, {nom = "Bénéfice reporté", v = brn, sec = 3}) end
+      if divM ~= 0 then table.insert(pas2, {nom = "Dividendes", v = divM, sec = 1}) end
+      if tan ~= 0 then table.insert(pas2, {nom = "Tantièmes", v = tan, sec = 1}) end
+      local function ligne(l) return {l.nom, l.v} end
+      local ta = grilleCote("Actif", {"", "Publié"}, sectionsActif(act, ligne), 1)
+      local tp = grilleCote("Passif", {"", "Publié"}, sectionsPassif(pas2, ligne), 1)
+      if math.abs(ta[1] - tp[1]) > 1e-6 then A("Actif " .. f(ta[1]) .. " ≠ passif " .. f(tp[1]) .. " : vérifier le bilan interne saisi.") end
+      COMMUN.calc("Total publié", "total interne − RL constituées", f(ta[1] + rl) .. " − " .. f(rl), f(ta[1]))
+      G("Dividendes et tantièmes deviennent des dettes à court terme ; le bénéfice de l'exercice quitte le bilan.")
+    end
+    G("Défaut = 37.15 (prof : bénéfice nécessaire 400 ; RL 73 + 35 + 40 + 47 = 195 ; BN publié 400 ; bilan publié après répartition 4'865).")
+    montrer("Répartition du bénéfice")
+  end
+  SOLVEURS.repartition = repartition
+
   ---------------------------------------------------------------- menu
   local function viaLignes(titre, defaut, suite)
     return function() demander(titre, function(t) suite(t) end, defaut) end
   end
+  local function quest(titre, champs, fn) return function() COMMUN.questionnaire(titre, champs, function(_, brut) fn(brut) end) end end
+  local SM = COMMUN.sousMenu
+  -- forts / mots / si : index de la recherche (99_menu) ; radicaux sans accents (voir CONVENTIONS-MODULES.md)
   table.insert(MENUS_COMPTA, {ordre = 37, titre = "Réserves latentes, évaluation (37)", items = {
     {"Tableau des RL → BN, FP réels", function()
       demander("Comptes (Nom:VCi/VRi/VCf/VRf ou 7 valeurs, ? = inconnue, Stock@2/3)", function(l)
         formu("Bénéfice et FP publiés", CH_TAB, function(t) rlTableau(l, t) end)
       end, DEF_TAB)
-    end},
-    {"Résultat réel (un poste)", function() formu("Un poste", CH_UN, rlUnPoste) end},
-    {"Ducroire", function() formu("Ducroire", CH_DUC, ducroire) end},
-    {"Stock à une fraction (PRAMV)", function() formu("Stock à une fraction", CH_SF, stockFraction) end},
-    {"Stock externe / interne", function() formu("Stock ext./int.", CH_EI, stockExtInt) end},
-    {"Valeur max. du stock (960c)", viaLignes("Articles (Nom:qté/PRA/VVN)", DEF_SM, stockMax)},
-    {"Titres cotés / non cotés", viaLignes("Titres (Nom:nombre/achat/cours 31.12/c ou n)", DEF_TI, titres)},
-    {"Coût d'acquisition, amort.", function() formu("Coût d'acquisition", CH_CA, coutAcq) end},
-    {"Reprise fiscale (stock)", function() formu("Reprise fiscale", CH_RF, repriseStock) end},
-    {"Reprises fiscales (postes)", function()
-      demander("Postes (Nom:comptabilisé/admis)", function(l) formu("Bénéfice", CH_RP, function(t) reprises(l, t) end) end, DEF_RP)
-    end},
-    {"Plusieurs années", function()
-      demander("Postes (Nom:VC/VR/VC/VR… ; BN:bénéfices)", function(l) formu("Années", CH_PA, function(t) plusieursAnnees(l, t) end) end, DEF_PA)
-    end},
-    {"Fonds propres sur 3 ans", viaLignes("Années (An:VCi/VRi/RLi/VCf/VRf/RLf/Var)", DEF_FP, fondsPropres)},
-    {"Dissolution : écritures, CR", function() formu("Dissolution", CH_DI, dissolution) end},
-    {"Théorie, V/F, catégories", theorie},
+    end, forts = "tableau rl latente fp propres", mots = "reserve benefice reel fonds interne creer poste ducroire titre stock installation variation initial final",
+      si = "plusieurs postes, ou fonds propres réels"},
+    {"Bénéfice réel, 1 poste", function() formu("Un poste", CH_UN, rlUnPoste) end,
+      forts = "reel seul", mots = "resultat benefice net perte publie stock inventaire rl poste valeur",
+      si = "une seule RL (un poste), RL initiale donnée"},
+    SM("Ducroire, stock à une fraction", "Un poste : ducroire, stock", {
+      {"Ducroire", function() formu("Ducroire", CH_DUC, ducroire) end,
+        forts = "ducroire", mots = "creance client provision risque perte reel benefice surevalue",
+        si = "seul poste : le ducroire (x % des créances)"},
+      {"Stock à une fraction (PRAMV)", function() formu("Stock à une fraction", CH_SF, stockFraction) end,
+        forts = "fraction tiers 2/3 estime", mots = "stock sous evalue pramv reel benefice latente valeur",
+        si = "« stock évalué aux 2/3 de sa valeur »"},
+      {"Stock externe / interne (marge)", function() formu("Stock ext./int.", CH_EI, stockExtInt) end,
+        forts = "externe constituee dissoute", mots = "interne stock pramv marge brute latente variation montant expliquer difference",
+        si = "marge brute externe / interne, RL du stock"},
+    }),
+    {"Stock : valeur maximale", viaLignes("Articles (Nom:qté/PRA/VVN)", DEF_SM, stockMax),
+      forts = "maxim 960c venale", mots = "stock article marchandise valeur bilan figurer evaluation pra completer inventaire",
+      si = "stock article par article (PRA / valeur nette)"},
+    {"Titres cotés / non cotés", viaLignes("Titres (Nom:nombre/achat/cours 31.12/c ou n)", DEF_TI, titres),
+      forts = "titre cote action bourse", mots = "maxim valeur bilan figurer portefeuille cours",
+      si = "titres : cotés au cours, non cotés au coût"},
+    {"Prix max. 1re inscription, amort.", function() formu("Coût d'acquisition", CH_CA, coutAcq) end,
+      forts = "acquisition comptabilisation inscription prix premiere", mots = "maxim cout amortissement taux prudent terrain machine objet evaluer inscrire",
+      si = "1re comptabilisation d'un actif, taux d'amort."},
+    SM("Reprises fiscales", "Reprises fiscales", {
+      {"Reprise fiscale sur le stock", function() formu("Reprise fiscale", CH_RF, repriseStock) end,
+        forts = "fiscal fisc reprise", mots = "stock benefice admis admettre impot valeur reelle aurait",
+        si = "RL sur le stock (1/3 admis), bénéfice fiscal"},
+      {"Reprises fiscales (postes)", function()
+        demander("Postes (Nom:comptabilisé/admis)", function(l) formu("Bénéfice", CH_RP, function(t) reprises(l, t) end) end, DEF_RP)
+      end, forts = "fiscal fisc reprise minimal", mots = "poste provision amortissement benefice admis admissible",
+        si = "plusieurs postes : bénéfice fiscal minimal"},
+    }),
+    SM("Plusieurs années", "Plusieurs années", {
+      {"Bénéfice réel, plusieurs années", function()
+        demander("Postes (Nom:VC/VR/VC/VR… ; BN:bénéfices)", function(l) formu("Années", CH_PA, function(t) plusieursAnnees(l, t) end) end, DEF_PA)
+      end, forts = "annees exercices", mots = "plusieurs reel benefice latente",
+        si = "même entreprise, BN réel de chaque année"},
+      {"Fonds propres sur 3 ans", viaLignes("Années (An:VCi/VRi/RLi/VCf/VRf/RLf/Var)", DEF_FP, fondsPropres),
+        forts = "capital annees", mots = "fonds propres fp tableau completer trois ans augmentation",
+        si = "tableau des FP sur 3 ans, sans augm. de capital"},
+    }),
+    SM("Bilan interne, répartition", "Bilan interne, répartition", {
+      {"Bilan publié → bilan interne", quest("Bilan interne (37.5)", CH_BI, bilanInterne),
+        forts = "interne apurement", mots = "bilan publie externe valeur rl reserve latente actif passif total etablir dresser final",
+        si = "bilan publié + RL par poste → bilan interne"},
+      {"Répartition du bénéfice, RL à créer", quest("Répartition (37.15)", CH_REP, repartition),
+        forts = "repartition dividende tantieme necessaire", mots = "benefice publie journaliser reserve legale reporte constituer rl apres bilan conseil",
+        si = "BN publié imposé par la répartition → RL à créer"},
+      {"Dissolution : écritures, CR interne", function() formu("Dissolution", CH_DI, dissolution) end,
+        forts = "dissolution journal ecriture", mots = "journaliser interne externe cr compte resultat latente dissoudre",
+        si = "journaliser la dissolution ; CR externe / interne"},
+      {"Théorie, V/F, catégories", theorie,
+        forts = "vrai faux theorie categorie", mots = "affirmation reserve latente forcee arbitraire appreciation",
+        si = "affirmations sur les RL, catégories"},
+    }),
   }})
 end
 
@@ -2632,11 +3037,11 @@ do
   end
   local function licence(v)
     vider()
-    T("Licence : quantité, prix min., baisse")
+    T("Prix minimum, baisse en % (44.16)")
     G("Méthode (modèle : 44.16) : a) à couvrir = CF + BN, divisé par la marge sur coût variable unitaire ; b) marge minimale = CF ÷ commande minimale, prix = coût + marge ; c) nouvelle marge, seuils ancien et nouveau (unité supérieure), augmentation en %.")
     licenceCorps(v)
     G("Défaut = 44.16 (prof : 5'750 ; 116.00 ; 4'500 → 6'429, +1'929, 42.9 %).")
-    montrer("Licence")
+    montrer("Prix minimum, baisse")
   end
   SOLVEURS.licence = lancer(CH_L, licence)
 
@@ -2669,7 +3074,7 @@ do
   }
   local function lot(v)
     vider()
-    T("Lot : changement de prix")
+    T("Prix changé en cours de vente")
     G("Méthode (modèle : 44.12) : les unités déjà vendues ont couvert une partie des frais fixes à l'ancienne marge ; le solde se couvre à la nouvelle marge. Nouveau seuil = déjà vendues + supplément.")
     local qa, pa, pv, cf, qv, npv = v.qa or 0, v.pa or 0, v.pv or 0, v.cf or 0, v.qv or 0, v.npv or 0
     local m1 = pv - pa
@@ -2840,21 +3245,144 @@ do
   SOLVEURS.multi = lancer(CH_M, multi)
 
   ------------------------------------------------------------------ menu
+  ------------------------------------------------------------------ B11 lecture inverse du graphique du seuil
+  -- valeurs lues sur le graphique (ou données) -> PV, MB unitaire, PM ; résultat pour un CA / une quantité ; CA pour un résultat visé
+  local CH_LG = {
+    {cle = "q1", lib = "Quantité lue sous un point de la droite du CAN", defaut = "40000", opt = true,
+      aide = "Choisir un point net de la droite du CAN (au bout du graphique). 44.14 : 40'000 unités. Vide si le prix de vente est donné."},
+    {cle = "ca1", lib = "CAN lu à cette quantité", defaut = "800000", opt = true, aide = "Ordonnée du même point. 44.14 : 800'000. PV = CAN ÷ quantité."},
+    {cle = "pv", lib = "ou prix de vente unitaire donné", defaut = "", opt = true, aide = "Remplace la lecture précédente s'il est donné (test 2025 ex. 8 : 15)."},
+    {cle = "q2", lib = "Quantité lue sous un point de la marge brute", defaut = "25000", opt = true,
+      aide = "Point net de la droite de marge brute (part du point 0). 44.14 : 25'000. Vide si le coût variable unitaire est donné."},
+    {cle = "mb2", lib = "Marge brute lue à cette quantité", defaut = "200000", opt = true, aide = "44.14 : 200'000. MB unitaire = MB ÷ quantité."},
+    {cle = "cv", lib = "ou coût variable unitaire donné", defaut = "", opt = true, aide = "Remplace la lecture de la marge brute (test 2025 ex. 8 : 9). MB unitaire = PV − CV."},
+    {cle = "ff", lib = "Frais fixes (droite horizontale)", defaut = "150000", aide = "Hauteur de la droite des frais fixes, lue sur l'axe vertical. 44.14 : 150'000."},
+    {cle = "bn", lib = "Résultats visés (perte en négatif)", defaut = "50000", texte = true, opt = true,
+      aide = "Un ou plusieurs bénéfices visés séparés par des espaces ; perte nette en négatif. Test 2025 ex. 8 : 0 30000 -60000. Donne le CA et la quantité."},
+    {cle = "cas", lib = "CA lus ou donnés (résultat cherché)", defaut = "", texte = true, opt = true,
+      aide = "CA pour lesquels on cherche le bénéfice ou la perte, séparés par des espaces. Vide = aucun."},
+    {cle = "qs", lib = "Quantités lues ou données (résultat cherché)", defaut = "", texte = true, opt = true,
+      aide = "Quantités pour lesquelles on cherche le bénéfice ou la perte, séparées par des espaces. Vide = aucune."},
+  }
+  local function nombres(s)
+    local t = {}
+    for m in tostring(s or ""):gsub("'", ""):gmatch("%S+") do local x = num(m); if x then table.insert(t, x) end end
+    return t
+  end
+  local function lectureGraphe(v)
+    vider()
+    T("Lire le graphique du seuil")
+    G("Méthode (modèles : 44.14 ; 44.13, test 2025 ex. 8) : chaque droite part d'un point connu. Le CAN part de 0 : sa pente est le prix " ..
+      "de vente (CAN lu ÷ quantité lue). La marge brute part de 0 : sa pente est la MB unitaire. Les frais fixes sont la droite horizontale. " ..
+      "Puis : quantité au PM = FF ÷ MB unitaire ; CA visé = (FF + BN) ÷ taux de MB.")
+    local pv, mbu = v.pv, nil
+    T("c) Prix de vente unitaire")
+    if nz(pv) then X("Prix de vente donné : " .. m2(pv))
+    elseif nz(v.q1) and v.ca1 then pv = v.ca1 / v.q1; calc("Prix de vente unitaire", "CAN lu ÷ quantité lue", mt(v.ca1) .. " ÷ " .. mt(v.q1), m2(pv))
+    else A("Il faut un point de la droite du CAN (quantité et CAN) ou le prix de vente."); montrer("Lecture du graphique"); return end
+    if nz(v.cv) then mbu = pv - v.cv; calc("Marge brute unitaire", "PV − CV", m2(pv) .. " − " .. m2(v.cv), m2(mbu))
+    elseif nz(v.q2) and v.mb2 then mbu = v.mb2 / v.q2; calc("Marge brute unitaire", "marge brute lue ÷ quantité lue", mt(v.mb2) .. " ÷ " .. mt(v.q2), m2(mbu))
+    else A("Il faut un point de la droite de marge brute ou le coût variable unitaire."); montrer("Lecture du graphique"); return end
+    if mbu <= EPS then A("Marge brute unitaire nulle ou négative : pas de point mort."); montrer("Lecture du graphique"); return end
+    local cv, ff, taux = pv - mbu, v.ff or 0, mbu / pv
+    calc("Coût variable unitaire", "PV − MB unitaire", m2(pv) .. " − " .. m2(mbu), m2(cv))
+    calc("Taux de marge brute", "MB unitaire × 100 ÷ PV", m2(mbu) .. " × 100 ÷ " .. m2(pv), tx(taux))
+    T("d) Point mort")
+    local qpm = ff / mbu
+    calc("Quantité au PM", "FF ÷ MB unitaire", mt(ff) .. " ÷ " .. m2(mbu), dec(qpm) .. (math.abs(qpm - sup(qpm)) > 1e-6 and (" → " .. fmt(sup(qpm))) or ""))
+    calc("CAN au PM", "quantité au PM × PV", dec(qpm) .. " × " .. m2(pv), mt(qpm * pv))
+    G("Sur le graphique : le PM est l'intersection CAN / prix de revient, à la verticale de l'intersection marge brute / frais fixes.")
+    local L, rep = {}, {{q = qpm}}
+    local vis = nombres(v._txt and v._txt.bn or v.bn)
+    if #vis > 0 then
+      T("e) CA pour un résultat visé")
+      for _, b in ipairs(vis) do
+        local ca = (ff + b) / taux
+        local nom = math.abs(b) < EPS and "PM (BN = 0)" or (b > 0 and ("BN = " .. mt(b)) or ("PN = " .. mt(-b)))
+        calc("CA (" .. nom .. ")", "(FF + BN) × 100 ÷ taux de MB", "(" .. mt(ff) .. (b >= 0 and " + " or " − ") .. mt(math.abs(b)) .. ") × 100 ÷ " .. tx(taux):gsub(" %%", ""), mt(ca))
+        table.insert(L, {nom, dec(ca / pv), mt(ca)})
+        table.insert(rep, {q = ca / pv})
+      end
+      G("Lecture : BN = écart vertical entre CAN et prix de revient (ou entre marge brute et frais fixes) à droite du PM ; à gauche, l'écart est une perte.")
+    end
+    local cas, qs = nombres(v._txt and v._txt.cas or v.cas), nombres(v._txt and v._txt.qs or v.qs)
+    if #cas + #qs > 0 then
+      T("Résultat pour un CA ou une quantité")
+      for _, ca in ipairs(cas) do
+        local r = ca * taux - ff
+        calc("Résultat (CA " .. mt(ca) .. ")", "CA × taux de MB − FF", mt(ca) .. " × " .. tx(taux) .. " − " .. mt(ff), mt(r) .. (r >= 0 and " (bénéfice)" or " (perte)"))
+        table.insert(L, {"CA " .. mt(ca), dec(ca / pv), mt(ca)})
+        table.insert(rep, {q = ca / pv})
+      end
+      for _, q in ipairs(qs) do
+        local r = q * mbu - ff
+        calc("Résultat (" .. mt(q) .. " u)", "quantité × MB unitaire − FF", mt(q) .. " × " .. m2(mbu) .. " − " .. mt(ff), mt(r) .. (r >= 0 and " (bénéfice)" or " (perte)"))
+        table.insert(L, {mt(q) .. " u", mt(q), mt(q * pv)})
+        table.insert(rep, {q = q})
+      end
+    end
+    if #L > 0 then GRILLE("Points à repérer", L, {entetes = {"Cas", "Quantité", "CAN"}}) end
+    local mx = 0
+    for _, r in ipairs(rep) do mx = math.max(mx, r.q) end
+    graphique(pv, cv, ff, qmaxRond(math.max(mx, v.q1 or 0) * 1.15), rep)
+    G("Défaut = 44.14 (prof : PV 20.00 ; MB unitaire 8.00 ; PM 18'750 unités et 375'000 ; BN 50'000 → CA 500'000). " ..
+      "Test 2025 ex. 8 : PV 15, CV 9, FF 150'000, résultats 0 30000 -60000 → 375'000 ; 450'000 ; 225'000.")
+    montrer("Lecture du graphique")
+  end
+  SOLVEURS.lectureGraphe = lancer(CH_LG, lectureGraphe)
+
+  local SM = COMMUN.sousMenu
+  -- forts / mots / si : index de la recherche (99_menu) ; radicaux sans accents (voir CONVENTIONS-MODULES.md)
   table.insert(MENUS_COMPTA, {ordre = 44, titre = "Compte de résultat, seuil (44)", items = {
-    {"CR à 2 degrés, PRAMA, PRAMV, CAN", menu("CR à 2 degrés", CH_CR, cr2)},
-    {"Seuil en quantité, bénéfice visé", menu("Seuil en quantité", CH_Q, seuilQ)},
-    {"Seuil en valeur (taux de marge)", menu("Seuil en valeur", CH_V, seuilV)},
-    {"Base du taux, CAN depuis la MB", menu("Base du taux", CH_T, tauxBase)},
-    {"Budget : PM, résultat, prévisions", menu("Budget", CH_B, budget)},
-    {"CR prévisionnel, date du PM", menu("CR prévisionnel", CH_P, crPrev)},
-    {"Graphique du seuil", menu("Graphique du seuil", CH_G, seuilGraphe)},
-    {"Licence : quantité, prix min., baisse", menu("Licence", CH_L, licence)},
-    {"Test 2025 ex. 10 (prof + livre)", licence2025},
-    {"Lot : changement de prix", menu("Lot", CH_LOT, lot)},
-    {"Taux de remplissage", menu("Remplissage", CH_R, remplissage)},
-    {"Marge contributive (théorie)", theorie},
-    {"Marge de sécurité, levier (hors cours)", menu("Marge de sécurité", CH_S, securite)},
-    {"Seuil multiproduits (hors cours)", menu("Multiproduits", CH_M, multi)},
+    {"CR à 2 degrés, PRAMA, PRAMV, CAN", menu("CR à 2 degrés", CH_CR, cr2),
+      forts = "degres prama pramv can dresser", mots = "compte resultat cr marge brute exploitation net achats ventes deductions mettre evidence",
+      si = "CR à 2 degrés sur marchandises (MB, BN)"},
+    {"Point mort en quantité", menu("Seuil en quantité", CH_Q, seuilQ),
+      forts = "combien quantite nombre seuil", mots = "point mort pm rentabilite benefice vise vendre vendus unite paquet article quotidien jour atteindre",
+      si = "prix et coût unitaires, réponse en unités"},
+    {"Point mort en CHF (CA)", menu("Seuil en valeur", CH_V, seuilV),
+      forts = "ca seuil valeur rentabiliser", mots = "chiffre affaires point mort pm taux marge brute benefice realiser fonds propres formule",
+      si = "CA et PRAMV (taux de MB), réponse en CHF"},
+    {"Taux de marge : base, CAN", menu("Base du taux", CH_T, tauxBase),
+      forts = "base taux", mots = "marge pramv can mb brute pourcentage chiffre affaires net",
+      si = "taux en % du PRAMV ↔ % du CA ; CAN depuis la MB"},
+    {"Budget : nouveau PM, prévisions", menu("Budget", CH_B, budget),
+      forts = "budget prevision nouveau maintenir seuil", mots = "pm point mort resultat benefice hausse baisse reste meme valeur",
+      si = "CR budgété : nouveau PM, BN si le CA change"},
+    {"CR prévisionnel, date du PM", menu("CR prévisionnel", CH_P, crPrev),
+      forts = "previsionnel date", mots = "compte resultat cr degres point mort seuil annee prochaine budgete presenter atteint",
+      si = "CR de l'an prochain ; date où le PM est atteint"},
+    SM("Graphique du seuil : tracer, lire", "Graphique du seuil", {
+      {"Tracer le graphique (montrer)", menu("Graphique du seuil", CH_G, seuilGraphe),
+        forts = "graph montrer representer tracer", mots = "droite point mort seuil chiffre affaires realiser perte benefice nette quantite",
+        si = "« montrer graphiquement » : tracer 4 droites"},
+      {"Lire le graphique (inverse)", function() COMMUN.questionnaire("Lecture du graphique", CH_LG, function(v) lectureGraphe(v) end) end,
+        forts = "lire lu lecture partir inverse", mots = "graph prix vente unitaire chiffre affaires point mort seuil quantite benefice perte resultat",
+        si = "valeurs lues sur le graphique → PV, PM, BN"},
+    }),
+    {"Prix minimum, baisse en %", menu("Licence", CH_L, licence),
+      forts = "minimum pourcentage licence", mots = "prix commande reduction baisse augmentation volume ventes couvrir nombre vendre benefice point mort seuil importation synthetiseur",
+      si = "prix minimum, ou baisse de prix → volume en %"},
+    SM("Autres cas, théorie", "Seuil : autres cas, théorie", {
+      {"Prix changé en cours de vente", menu("Lot", CH_LOT, lot),
+        forts = "lot changement solde", mots = "prix nouveau seuil deja vendu sapin cours vente modifie",
+        si = "prix modifié en cours de vente (lot acheté)"},
+      {"Taux de remplissage", menu("Remplissage", CH_R, remplissage),
+        forts = "remplissage occupation passager personne transporter", mots = "compagnie avion capacite taux seuil place siege",
+        si = "capacité fixe : taux d'occupation au seuil"},
+      {"Test 2025 ex. 10 (prof + livre)", licence2025,
+        forts = "2025", mots = "test licence synthetiseur prof",
+        si = "chiffres du corrigé du prof (850 ; 6'750)"},
+      {"Marge contributive (théorie)", theorie,
+        forts = "contributive citer theorie", mots = "cout fixe variable definition element frais",
+        si = "citer des coûts fixes / variables"},
+      {"Marge de sécurité, levier (hors cours)", menu("Marge de sécurité", CH_S, securite),
+        forts = "securite levier operationnel", mots = "marge",
+        si = "hors cours"},
+      {"Seuil multiproduits (hors cours)", menu("Multiproduits", CH_M, multi),
+        forts = "multiproduit mix", mots = "plusieurs produits seuil",
+        si = "hors cours"},
+    }),
   }})
 end
 
@@ -4395,16 +4923,6 @@ function F.unRatio(id, brut)
   if d.src then G(d.src) end
   montrer(d.nom)
 end
-function F.menuRatios()
-  local it = {}
-  for _, d in ipairs(RAT) do
-    local dd = d
-    table.insert(it, {dd.nom, function()
-      COMMUN.questionnaire(dd.nom, F.champs(dd.champs, EX[dd.ex]), function(_, brut) F.unRatio(dd.id, brut) end)
-    end})
-  end
-  MENU = {titre = "Ratios un par un (26)", items = it}; sel = 1; ecran = "menu"; inval()
-end
 
 ------------------------------------------------------------------ questionnaires guidés (bilan analytique, chiffres clés)
 local AIDE_LISTE = "Format nom=montant (ex. Caisse=2600 ; déduction : ./.Ducroire=1200). Classement d'après le nom : caisse, poste, banque, titres → liquidités ; clients, ducroire → créances ; stock ; mobilier, machines, véhicules → AI ; fournisseurs → CE ct ; emprunt, hypothèque → CE lt ; capital, réserves, bénéfice. Forcer : ct:Banque=500."
@@ -4476,21 +4994,69 @@ SOLVEURS.frn = F.frnSeul
 SOLVEURS.vraiFaux = F.vraiFaux
 SOLVEURS.ratio = F.unRatio
 
+-- ratios un par un : un sous-menu par famille (9 entrées au plus par menu) ; chaque ratio est indexé pour la recherche
+-- mots forts : seulement ce qui ne désigne que ce ratio (le reste du nom compte comme « mots » via le titre)
+local FORTS_RATIO = {iac = "intensite", iai = "intensite", auto = "autofinancement", durcli = "accorde", durfrs = "obtenu",
+  dursto = "stationnement"}
+F.familles = {}
+do
+  local ordre, par = {}, {}
+  for _, d in ipairs(RAT) do
+    local dd = d
+    if not par[dd.fam] then par[dd.fam] = {}; table.insert(ordre, dd.fam) end
+    table.insert(par[dd.fam], {dd.nom, function()
+      COMMUN.questionnaire(dd.nom, F.champs(dd.champs, EX[dd.ex]), function(_, brut) F.unRatio(dd.id, brut) end)
+    end, forts = FORTS_RATIO[dd.id] or "", mots = "ratio seul un " .. dd.fam, si = "un seul ratio (" .. dd.fam .. ")"})
+  end
+  for _, fam in ipairs(ordre) do table.insert(F.familles, COMMUN.sousMenu(fam, fam, par[fam])) end
+end
+function F.menuRatios()
+  MENU = {titre = "Ratios un par un (26)", items = F.familles}; sel = 1; ecran = "menu"; inval()
+end
+
 -- chaque entrée pose les questions une par une (COMMUN.questionnaire), puis appelle le solveur avec « cle=valeur;… »
+-- forts / mots / si : index de la recherche (99_menu) ; radicaux sans accents (voir CONVENTIONS-MODULES.md)
 local function quest(titre, champs, f) return function() COMMUN.questionnaire(titre, champs, function(_, brut) f(brut) end) end end
+local SM = COMMUN.sousMenu
 table.insert(MENUS_COMPTA, {ordre = 51, titre = "Analyse de bilan et résultat (51)", items = {
-  {"Analyse complète, 26 ratios", quest("Analyse complète", F.champs(CH_ANA, EX_ANA), F.analyse)},
-  {"Ratios du bilan, 1 année", quest("Bilan (test 2025 ex. 3)", F.champs(CH_BIL, EX.T25), F.bilan)},
-  {"Comparer 1 à 5 bilans", function() F.qComparer(false) end},
-  {"Comparer X entreprises (ratios)", function() F.qComparer(true) end},
-  {"Bilan analytique (liste)", F.qAnalytique},
-  {"CR à degrés (balance)", quest("CR à degrés (51.19)", CH_CR, F.cr)},
-  {"Chiffres clés (années)", F.qCles},
-  {"Rotations et durées", quest("Rotations (51.24)", F.champs(CH_ROT, EX_ROT), F.rotations)},
-  {"ROI, ROE (+ levier, hors test)", quest("ROI, ROE (51.25)", F.champs(CH_REN, EX_REN), F.rentab)},
-  {"Fonds de roulement net", quest("FRN", F.champs(CH_FRN, EX.T25), F.frnSeul)},
-  {"Ratios un par un (26)", F.menuRatios},
-  {"Vrai / faux (51.15)", F.vraiFaux},
+  {"Analyse complète, 26 ratios", quest("Analyse complète", F.champs(CH_ANA, EX_ANA), F.analyse),
+    forts = "complete analyse 26", mots = "ratio bilan resultat commenter entreprise tous",
+    si = "bilan + CR : tous les ratios et commentaires"},
+  {"Ratios du bilan, 1 année", quest("Bilan (test 2025 ex. 3)", F.champs(CH_BIL, EX.T25), F.bilan),
+    forts = "ratio liquidite couverture", mots = "bilan annee degre endettement intensite financement expliquer signifie",
+    si = "une entreprise, une année : ratios du bilan"},
+  SM("Comparer des entreprises", "Comparer des entreprises", {
+    {"À partir des bilans (1 à 5)", function() F.qComparer(false) end,
+      forts = "comparer entreprise apprecier", mots = "bilan ratio trois plusieurs liquidite structure financement niveau",
+      si = "plusieurs bilans → ratios côte à côte"},
+    {"À partir des ratios calculés", function() F.qComparer(true) end,
+      forts = "comparer entreprise deja", mots = "ratio commenter chiffres obtenus structure financement apprecier",
+      si = "ratios déjà donnés : comparer, commenter"},
+  }),
+  {"Bilan analytique (liste)", F.qAnalytique,
+    forts = "analytique", mots = "bilan etablir structure repartition benefice apres structure",
+    si = "liste de postes → bilan structuré"},
+  {"CR à degrés (EBIT, marge éco.)", quest("CR à degrés (51.19)", CH_CR, F.cr),
+    forts = "ebit ebitda balance economique presenter", mots = "compte resultat cr degres evidence etablir marge",
+    si = "balance → CR à degrés : EBITDA, EBIT, BN"},
+  {"Rotations et durées", quest("Rotations (51.24)", F.champs(CH_ROT, EX_ROT), F.rotations),
+    forts = "rotation duree delai cycle", mots = "stock creance client fournisseur credit jour moyenne liquidite analyse",
+    si = "rotations, durées de crédit et de stockage"},
+  {"Rentabilité : ROI, ROE", quest("ROI, ROE (51.25)", F.champs(CH_REN, EX_REN), F.rentab),
+    forts = "rentabilite roi roe rci rfp rendement", mots = "fonds propres capitaux investis levier decomposer",
+    si = "rentabilité des FP (ROE) ou des capitaux (ROI)"},
+  SM("Ratios un par un (26)", "Ratios un par un (26)", F.familles),
+  SM("Chiffres clés, FRN, vrai / faux", "Chiffres clés, FRN, V/F", {
+    {"Chiffres clés (années)", F.qCles,
+      forts = "cles employe m2 surface", mots = "chiffre annees evolution affaires",
+      si = "CA par employé, au m², sur plusieurs années"},
+    {"Fonds de roulement net", quest("FRN", F.champs(CH_FRN, EX.T25), F.frnSeul),
+      forts = "frn roulement", mots = "fonds net",
+      si = "FRN = AC − CE à court terme"},
+    {"Vrai / faux (51.15)", F.vraiFaux,
+      forts = "vrai faux", mots = "affirmation analyse ratio toujours indique situation",
+      si = "affirmations sur les ratios (51.15)"},
+  }),
 }})
 end
 
@@ -4911,14 +5477,29 @@ do
   local function saisir(msg, defaut, nom)
     return function() demander(msg, function(t) SOLVEURS[nom](t) end, defaut) end
   end
+  -- forts / mots / si : index de la recherche (99_menu) ; radicaux sans accents (voir CONVENTIONS-MODULES.md)
   table.insert(MENUS_COMPTA, {ordre = 57, titre = "Trésorerie (57)", items = {
-    {"Tableau des liquidités", saisir("Compte=N-1/N ; « -Compte » au passif (banque c/c)", DEF_LIQ, "tresoLiq")},
-    {"Cash flow direct / indirect", saisir("CR : ven ach sal loy ace aut cf pf amo nm pvc pc ; N-1/N : cre sto ara dfo pre ; bn", DEF_CF, "tresoCF")},
-    {"Tableau des flux complet", saisir("L Compte=N-1/N ; CR ; BFR N-1/N ; imo ces ifi dlt cap div", DEF_TFT, "tresoTFT")},
-    {"Effets des opérations", function() SOLVEURS.tresoEffets() end},
-    {"Ratios de cash flow, free cash flow", saisir("cf ; can ; bn ; inv (ou ai1 ai2 amo pcess bcess) ; ce liq cre", DEF_RAT, "tresoRatios")},
-    {"BFR, cycle de trésorerie (hors cours)", saisir("sto pramv cre ca dfo ach ; j = jours", DEF_BFR, "tresoBFR")},
-    {"Budget de trésorerie (hors cours)", saisir("si ; mois=… ; enc=… ; dec=… ; min", DEF_BUD, "tresoBudget")},
+    {"Tableau des liquidités", saisir("Compte=N-1/N ; « -Compte » au passif (banque c/c)", DEF_LIQ, "tresoLiq"),
+      forts = "liquidite tableau", mots = "tresorerie etablir caisse poste banque variation",
+      si = "variation des liquidités (caisse, poste, banque)"},
+    {"Cash flow direct / indirect", saisir("CR : ven ach sal loy ace aut cf pf amo nm pvc pc ; N-1/N : cre sto ara dfo pre ; bn", DEF_CF, "tresoCF"),
+      forts = "cash flow indirect methode", mots = "direct calcul presenter augmentation liquidite secteur exploitation cf",
+      si = "cash flow d'exploitation seul (dir. / indir.)"},
+    {"Tableau des flux complet", saisir("L Compte=N-1/N ; CR ; BFR N-1/N ; imo ces ifi dlt cap div", DEF_TFT, "tresoTFT"),
+      forts = "flux tft", mots = "tableau tresorerie secteur exploitation investissement financement direct methode complet cash flow",
+      si = "tableau des flux : 3 secteurs"},
+    {"Effets des opérations", function() SOLVEURS.tresoEffets() end,
+      forts = "effet operation", mots = "indiquer resultat liquidite rn liq",
+      si = "effet de chaque opération sur RN / LIQ"},
+    {"Ratios de cash flow, endettement", saisir("cf ; can ; bn ; inv (ou ai1 ai2 amo pcess bcess) ; ce liq cre", DEF_RAT, "tresoRatios"),
+      forts = "facteur free effectif qualite", mots = "cash flow ratio endettement investissement net evaluer marge",
+      si = "facteur d'endettement, free cash flow, qualité"},
+    {"BFR, cycle de trésorerie (hors cours)", saisir("sto pramv cre ca dfo ach ; j = jours", DEF_BFR, "tresoBFR"),
+      forts = "bfr besoin", mots = "fonds roulement cycle tresorerie",
+      si = "hors cours"},
+    {"Budget de trésorerie (hors cours)", saisir("si ; mois=… ; enc=… ; dec=… ; min", DEF_BUD, "tresoBudget"),
+      forts = "encaissement decaissement budget", mots = "tresorerie mois plan",
+      si = "hors cours"},
   }})
 end
 
@@ -5191,7 +5772,7 @@ do
     local dec, arr = v.dec or 4, v.arr or 0
     local function rr(x) return r0(x, arr) end
     vider()
-    T("Coûts complets en cascade")
+    T("Coûts : appro → prix de revient")
     G("Méthode : coût d'achat → stock de matières (CMP) → coût de production → stock de produits (CMP) → (2e atelier) → prix de " ..
       "revient → résultat. Chaque stock : CMP = (stock initial + entrées) ÷ quantités, " .. dec .. " décimales ; montants arrondis à " ..
       (arr == 0 and "l'unité" or (arr .. " déc.")) .. " (modèle : test 2026-02 ex. 3 b-i ; 59.15 avec mode=2).")
@@ -5466,15 +6047,32 @@ do
   local function saisir(msg, defaut, nom)
     return function() demander(msg, function(t) SOLVEURS[nom](t) end, defaut) end
   end
+  -- forts / mots / si : index de la recherche (99_menu) ; radicaux sans accents (voir CONVENTIONS-MODULES.md)
   table.insert(MENUS_COMPTA, {ordre = 59, titre = "Coûts (59)", items = {
-    {"Compte de stock au CMP", saisir("Stock : si date=q@cu ; e date=q@cu ; s date=q ; dec ; arr ; mode=g (période) ou p", DEF_STOCK, "coutsStock")},
-    {"Répartition des charges indirectes", saisir("sec=… ; aux=nb ; c Nom=montants ou total@clé ; k Section=clé ; uo=… ; nuo=… ; dec", DEF_REP, "coutsRepart")},
-    {"Coûts complets en cascade", saisir("mode 1 (CI appro en stock) / 2 (59.15) ; SI MP, achats, uoa ; ateliers h,t,n,c,q, stock sq,scu,so ; distribution nd,cd ; ventes vq,pv", DEF_CASC, "coutsCascade")},
-    {"Prix de revient d'une commande", saisir("Matières, CI appro (% ou /kg), MOD, CI ateliers u×c, distribution, prix et remise", DEF_CMD, "coutsCommande")},
-    {"Charges incorporables", saisir("cg = charges d'exploitation de la période ; montants annuels ; per = périodes par an", DEF_INC, "coutsIncorp")},
-    {"Résultat analytique → CG", saisir("ra = résultat analytique ; corrections", DEF_RCG, "coutsResCG")},
-    {"Résultat par département", saisir("Quantités, prix, charges directes ; fg réparti selon les articles", DEF_DEP, "coutsDept")},
-    {"Coût de l'unité d'œuvre", saisir("tot = charges ; p Nom=heures,classes", DEF_UO, "coutsUO")},
+    {"Compte de stock au CMP", saisir("Stock : si date=q@cu ; e date=q@cu ; s date=q ; dec ; arr ; mode=g (période) ou p", DEF_STOCK, "coutsStock"),
+      forts = "cmp pondere entree sortie", mots = "compte stock etablir presenter cout moyen matiere premiere achetee",
+      si = "entrées / sorties valorisées au CMP"},
+    {"Répartition des charges indirectes", saisir("sec=… ; aux=nb ; c Nom=montants ou total@clé ; k Section=clé ; uo=… ; nuo=… ; dec", DEF_REP, "coutsRepart"),
+      forts = "repartition indirecte section", mots = "charge tableau auxiliaire principale unite oeuvre etablir primaire secondaire cle",
+      si = "tableau de répartition (sections, clés)"},
+    {"Coûts : appro → prix de revient", saisir("mode 1 (CI appro en stock) / 2 (59.15) ; SI MP, achats, uoa ; ateliers h,t,n,c,q, stock sq,scu,so ; distribution nd,cd ; ventes vq,pv", DEF_CASC, "coutsCascade"),
+      forts = "approvisionnement transformation distribu complet cascade revient mois", mots = "cout prix production matiere premiere resultat atelier fabrication",
+      si = "cascade : appro → production → prix de revient"},
+    {"Prix de revient d'une commande", saisir("Matières, CI appro (% ou /kg), MOD, CI ateliers u×c, distribution, prix et remise", DEF_CMD, "coutsCommande"),
+      forts = "commande devis revient", mots = "prix remise mod produit resultat",
+      si = "une commande ou un produit : PR et résultat"},
+    {"Charges incorporables", saisir("cg = charges d'exploitation de la période ; montants annuels ; per = périodes par an", DEF_INC, "coutsIncorp"),
+      forts = "incorporable incorporee", mots = "charge cae periode mois montant",
+      si = "charges de la CG → charges incorporables"},
+    {"Résultat analytique → CG", saisir("ra = résultat analytique ; corrections", DEF_RCG, "coutsResCG"),
+      forts = "generale cg concordance", mots = "resultat analytique correction determination passage",
+      si = "résultat analytique → résultat de la CG"},
+    {"Résultat par département", saisir("Quantités, prix, charges directes ; fg réparti selon les articles", DEF_DEP, "coutsDept"),
+      forts = "departement", mots = "resultat produit frais generaux",
+      si = "résultat par produit / département"},
+    {"Coût de l'unité d'œuvre", saisir("tot = charges ; p Nom=heures,classes", DEF_UO, "coutsUO"),
+      forts = "oeuvre uo profil classe", mots = "cout unite heure tableau completer",
+      si = "coût par unité d'œuvre (profil, classe)"},
   }})
 end
 
@@ -5741,20 +6339,49 @@ do
   local function saisir(msg, defaut, nom)
     return function() demander(msg, function(t) SOLVEURS[nom](t) end, defaut) end
   end
+  -- forts / mots / si : index de la recherche (99_menu) ; radicaux sans accents (voir CONVENTIONS-MODULES.md)
   table.insert(MENUS_COMPTA, {ordre = 70, titre = "Finance (hors cours)", items = {
-    {"Intérêts, escompte", saisir("c capital ; t taux ; j jours ; n années ; m périodes ; esc ; de délai escompte ; dp délai paiement", DEF_INT, "finInterets")},
-    {"Emprunt, plan de remboursement", saisir("k capital ; t taux ; n années ; type 1 annuités constantes / 2 amortissement constant", DEF_EMP, "finEmprunt")},
-    {"VAN, TRI, délai de récupération", saisir("i0 investissement ; cf=flux,flux,… ; t taux d'actualisation", DEF_INV, "finInvest")},
-    {"Amortissements linéaire, dégressif", saisir("v valeur d'acquisition ; n durée ; vr valeur résiduelle ; td taux dégressif", DEF_AMO, "finAmort")},
-    {"TVA : HT/TTC, décompte", saisir("t taux ; ht ou ttc ; vht ventes HT ; aht achats HT ; ti taux impôt préalable", DEF_TVA, "finTVA")},
-    {"Marge, marque, coefficients", saisir("pa prix d'achat ; pv ou maj (majoration) ou mq (marque) ; tva", DEF_PRIX, "finPrix")},
+    {"Intérêts, escompte", saisir("c capital ; t taux ; j jours ; n années ; m périodes ; esc ; de délai escompte ; dp délai paiement", DEF_INT, "finInterets"),
+      forts = "interet escompte", mots = "capital taux jours", si = "hors cours"},
+    {"Emprunt, plan de remboursement", saisir("k capital ; t taux ; n années ; type 1 annuités constantes / 2 amortissement constant", DEF_EMP, "finEmprunt"),
+      forts = "emprunt annuite remboursement", mots = "plan", si = "hors cours"},
+    {"VAN, TRI, délai de récupération", saisir("i0 investissement ; cf=flux,flux,… ; t taux d'actualisation", DEF_INV, "finInvest"),
+      forts = "van tri actualisation recuperation", mots = "investissement", si = "hors cours"},
+    {"Amortissements linéaire, dégressif", saisir("v valeur d'acquisition ; n durée ; vr valeur résiduelle ; td taux dégressif", DEF_AMO, "finAmort"),
+      forts = "lineaire degressif", mots = "amortissement valeur residuelle", si = "hors cours"},
+    {"TVA : HT/TTC, décompte", saisir("t taux ; ht ou ttc ; vht ventes HT ; aht achats HT ; ti taux impôt préalable", DEF_TVA, "finTVA"),
+      forts = "tva ht ttc", mots = "decompte impot prealable", si = "hors cours"},
+    {"Marge, marque, coefficients", saisir("pa prix d'achat ; pv ou maj (majoration) ou mq (marque) ; tva", DEF_PRIX, "finPrix"),
+      forts = "marque coefficient majoration", mots = "marge prix achat vente", si = "hors cours"},
   }})
 end
 
 -- ===== module 99_menu.lua
 -- 99_menu.lua : menu principal assemble a partir des modules (charge en dernier, avant le socle de fin)
+-- + index de recherche : chaque entree de menu qui porte forts / mots devient une entree d'INDEX_SOLVEURS,
+--   avec son chemin calcule ici (« 2·3·1 ») : l'index suit les menus quand ils changent.
+table.sort(MENUS_COMPTA, function(a, b) return (a.ordre or 50) < (b.ordre or 50) end)
+do
+  local function decoupe(s)
+    if type(s) ~= "string" then return s end
+    local t = {}
+    for m in s:gmatch("%S+") do t[#t + 1] = m end
+    return t
+  end
+  local function indexer(items, chemin)
+    for i, it in ipairs(items) do
+      local ch = chemin .. "·" .. i
+      if it.forts or it.mots then
+        table.insert(INDEX_SOLVEURS, {titre = it[1], chemin = ch, forts = decoupe(it.forts) or {}, mots = decoupe(it.mots) or {},
+          si = it.si, ouvrir = it[2]})
+      end
+      if it.sous then indexer(it.sous, ch) end
+    end
+  end
+  for k, m in ipairs(MENUS_COMPTA) do indexer(m.items, tostring(k)) end
+end
+
 menuPrincipal = function()
-  table.sort(MENUS_COMPTA, function(a, b) return (a.ordre or 50) < (b.ordre or 50) end)
   local items = {}
   for _, m in ipairs(MENUS_COMPTA) do
     local sous = m
@@ -5763,6 +6390,7 @@ menuPrincipal = function()
     end})
   end
   table.insert(items, {"Historique des résultats", historiqueResultats or function() end})
+  PILE_MENUS = {}
   MENU = {titre = TITRE_APP, items = items}
   sel = 1; ecran = "menu"; inval()
 end
@@ -6147,7 +6775,70 @@ local function dessinerMenu(gc, w, h)
     gc:setColorRGB(120, 120, 120); gc:setFont("sansserif", "r", 9)
     gc:drawString(sel .. "/" .. #MENU.items, w - 34, h - 32, "top")
   end
-  pied(gc, w, h, "▲▼ choisir   enter : ouvrir   esc : retour")
+  pied(gc, w, h, "▲▼ choisir  enter : ouvrir  lettre : chercher  esc : retour")
+end
+
+-- ecran « Trouver un solveur » : une lettre tapee dans un menu l'ouvre ; liste filtree a chaque frappe (CHERCHE.chercher)
+local rech = {txt = "", res = {}, sel = 1}
+local function dessinerCherche(gc, w, h)
+  bandeau(gc, w, "Trouver un solveur")
+  local n = #rech.res
+  local cpt = (n > 0 and rech.sel or 0) .. " / " .. n
+  gc:setFont("sansserif", "r", 9); gc:setColorRGB(255, 255, 255)
+  gc:drawString(cpt, w - 6 - gc:getStringWidth(cpt), 4, "top")
+  local yb = 23
+  gc:setColorRGB(245, 245, 255); gc:fillRect(4, yb, w - 8, 22)
+  gc:setColorRGB(30, 70, 160); gc:drawRect(4, yb, w - 8, 22)
+  gc:setColorRGB(0, 0, 0); gc:setFont("sansserif", "r", 11)
+  gc:drawString(rech.txt, 8, yb + 3, "top")
+  local cx = 8 + gc:getStringWidth(rech.txt)
+  gc:drawLine(cx, yb + 3, cx, yb + 19)
+  local y = yb + 26
+  if n == 0 then
+    local l = {}
+    if #rech.txt < 3 then
+      l = {"Taper des mots de la consigne, sans accent :", "  reel  max stock  pm  graph  ratio liq", "  comparer  cash  flux  cout appro  fisc",
+        "Début de mot suffisant (3 lettres) ; sigles", "entiers : pm rl fp ca cr mb.", "Les chiffres 1-9 restent pour les menus."}
+    else
+      l = {"Aucun solveur pour « " .. rech.txt .. " ».", "Essayer un mot de la consigne, sans accent :", "  reel  max  seuil  graph  ratio  comparer",
+        "  stock  cash  flux  cout  repart  fisc  titre", "Sigles : pm rl fp can pramv roi roe cmp"}
+    end
+    for i, s in ipairs(l) do
+      gc:setColorRGB(i == 1 and 0 or 90, i == 1 and 0 or 90, i == 1 and 0 or 90); gc:setFont("sansserif", i == 1 and "b" or "r", 9)
+      gc:drawString(couperC(gc, s, w - 12), 6, y + 15 * (i - 1), "top")
+    end
+  else
+    local hl = 34
+    local nvis = math.max(1, math.floor((h - 16 - y) / hl))
+    local debut = math.max(1, rech.sel - nvis + 1)
+    for i = debut, math.min(n, debut + nvis - 1) do
+      local r = rech.res[i]
+      if i == rech.sel then gc:setColorRGB(200, 220, 255); gc:fillRect(2, y - 1, w - 4, hl - 2) end
+      gc:setColorRGB(0, 0, 0); gc:setFont("sansserif", i == rech.sel and "b" or "r", 10)
+      gc:drawString(couperC(gc, (r.chemin or "") .. "  " .. (r.titre or ""), w - 12), 6, y, "top")
+      gc:setColorRGB(110, 110, 110); gc:setFont("sansserif", "i", 9)
+      gc:drawString(couperC(gc, "si : " .. (r.si or ""), w - 26), 20, y + 16, "top")
+      y = y + hl
+    end
+  end
+  pied(gc, w, h, "▲▼ choisir   enter : ouvrir   esc : menu   clear")
+end
+
+local function relancerCherche()
+  rech.res = CHERCHE.chercher(rech.txt); rech.sel = 1; inval()
+end
+local function ouvrirCherche(ch)
+  rech = {txt = ch or "", res = {}, sel = 1, menu = MENU, msel = sel}
+  ecran = "cherche"; relancerCherche()
+end
+local function lancerCherche()
+  local r = rech.res[rech.sel]
+  if not r or not r.ouvrir then return end
+  MENU = rech.menu; sel = rech.msel; ecran = "menu"
+  local ok, err = pcall(r.ouvrir)
+  table.insert(PILE_MENUS, {menu = rech.menu, sel = rech.msel})   -- esc ramene au menu d'ou la recherche est partie
+  if not ok then vider(); T("Erreur"); A(tostring(err)); montrer("Erreur") end
+  inval()
 end
 
 local function couper(gc, s, larg)
@@ -6285,12 +6976,14 @@ function on.paint(gc)
   gc:setColorRGB(255, 255, 255); gc:fillRect(0, 0, w, h)
   if ecran == "menu" then dessinerMenu(gc, w, h)
   elseif ecran == "saisie" then dessinerSaisie(gc, w, h)
+  elseif ecran == "cherche" then dessinerCherche(gc, w, h)
   else dessinerVue(gc, w, h) end
 end
 
 ------------------------------------------------------------------ touches
 function on.arrowUp()
   if ecran == "menu" then sel = sel > 1 and sel - 1 or #MENU.items
+  elseif ecran == "cherche" then if #rech.res > 0 then rech.sel = rech.sel > 1 and rech.sel - 1 or #rech.res end
   elseif ecran == "saisie" then
     if saisie.h > 1 then saisie.h = saisie.h - 1; saisie.txt = HIST[saisie.h]; saisie.cur = #saisie.txt end
   else vue.haut = math.max(0, vue.haut - 16) end
@@ -6299,6 +6992,7 @@ end
 
 function on.arrowDown()
   if ecran == "menu" then sel = sel < #MENU.items and sel + 1 or 1
+  elseif ecran == "cherche" then if #rech.res > 0 then rech.sel = rech.sel < #rech.res and rech.sel + 1 or 1 end
   elseif ecran == "saisie" then
     if saisie.h < #HIST then saisie.h = saisie.h + 1; saisie.txt = HIST[saisie.h]; saisie.cur = #saisie.txt
     else saisie.h = #HIST + 1; saisie.txt = ""; saisie.cur = 0 end
@@ -6327,6 +7021,8 @@ function on.charIn(ch)
     local avant = MENU
     MENU.items[sel][2]()
     if MENU ~= avant then table.insert(PILE_MENUS, {menu = avant, sel = sel}) end
+  elseif ecran == "menu" and ch:match("^%a$") then ouvrirCherche(ch)       -- une lettre : recherche (les chiffres restent au menu)
+  elseif ecran == "cherche" and #rech.txt < 40 then rech.txt = rech.txt .. ch; relancerCherche()
   end
 end
 
@@ -6334,11 +7030,17 @@ function on.backspaceKey()
   if ecran == "saisie" and saisie.cur > 0 then
     saisie.txt = saisie.txt:sub(1, saisie.cur - 1) .. saisie.txt:sub(saisie.cur + 1)
     saisie.cur = saisie.cur - 1; inval()
+  elseif ecran == "cherche" and #rech.txt > 0 then
+    local t = rech.txt:sub(1, -2)
+    while #t > 0 and t:byte(-1) >= 128 and t:byte(-1) < 192 do t = t:sub(1, -2) end   -- pas de demi-caractere UTF-8
+    if #t > 0 and t:byte(-1) >= 192 then t = t:sub(1, -2) end
+    rech.txt = t; relancerCherche()
   end
 end
 
 function on.clearKey()
-  if ecran == "saisie" then saisie.txt = ""; saisie.cur = 0; inval() end
+  if ecran == "saisie" then saisie.txt = ""; saisie.cur = 0; inval()
+  elseif ecran == "cherche" then rech.txt = ""; relancerCherche() end
 end
 
 function on.enterKey()
@@ -6353,11 +7055,15 @@ function on.enterKey()
     local s = saisie.suite
     local ok, err = pcall(s, t)
     if not ok then vider(); T("Erreur"); A(tostring(err)); montrer("Erreur") end
+  elseif ecran == "cherche" then lancerCherche()
   else menuPrincipal() end
 end
 
 function on.escapeKey()
-  if ecran ~= "menu" or MENU.titre ~= TITRE_APP then
+  if ecran == "cherche" then MENU = rech.menu or MENU; sel = rech.msel or 1; ecran = "menu"; inval(); return end
+  -- depuis un resultat ou une saisie : retour au menu d'ou le solveur a ete lance (pas a son parent)
+  if ecran ~= "menu" and MENU then ecran = "menu"; inval(); return end
+  if MENU.titre ~= TITRE_APP then
     local p = table.remove(PILE_MENUS)
     if p then MENU = p.menu; sel = p.sel; ecran = "menu"; inval() else menuPrincipal() end
   end
@@ -6373,5 +7079,7 @@ API_TEST = {doc = function() return DOC end, hist = function() return HIST end,
   ecran = function() return ecran end, vue = function() return vue end, saisie = function() return saisie end, menu = function() return MENU, sel end,
   -- saisie simulee : txt = nil garde le texte pre-rempli (ENTER seul)
   entrer = function(txt) if txt then saisie.txt = txt; saisie.cur = #txt end; on.enterKey() end,
-  choisir = function(i) sel = i; on.enterKey() end}
+  choisir = function(i) sel = i; on.enterKey() end,
+  -- recherche : liste classee {titre, chemin, si, score, ouvrir} ; recherche() = etat de l'ecran (txt, res, sel)
+  chercher = function(txt) return CHERCHE.chercher(txt) end, recherche = function() return rech end}
 

@@ -1,0 +1,55 @@
+# Consignes réelles -> chemin attendu dans lua/solveur_socle.lua (« saisie ; chemin »).
+# Source : tools/nspire/ETUDE-CHOIX-SOLVEUR.md, tableau 3.3 (M1-M24 : test 2025, blanc 1, séries 1 à 7).
+# Usage : python tools/nspire/test_pc.py MATH_1/calculatrice/lua/solveur_socle.lua --cherche-tout MATH_1/calculatrice/consignes-maths.txt
+# Attention : l'index a été rédigé en connaissant ces consignes ; à remesurer sur des consignes nouvelles (blanc 2, séries suivantes).
+# --- consignes entières
+Résoudre (mx)^2 - 2mx - 3 = 0 où m est un paramètre ; 1
+Résoudre 6e^(3x) + 5e^(2x) - 2e^x - 1 = 0 ; 1
+Résoudre |x - 1| / (x + 2) >= 1/2 ; 1
+Trouver les coordonnées du point T, projection orthogonale de P sur la droite (QR) ; 7·3
+Soit S(x; x+2; x) tel que QS soit perpendiculaire à QR. Trouver les coordonnées de S ; 7·7·1
+Calculer le volume du parallélépipède ; 7·6
+Calculer les composantes du vecteur QS dans la base B ; 7·8·1
+Déterminer si B est orthonormée ; 7·8·3
+Construire une base orthonormée directe ; 7·8·4
+Exprimer le plus simplement possible les vecteurs suivants ; 3·4
+Exprimez les vecteurs suivants uniquement en fonction de u et de v ; 3·4
+En s'aidant du quadrillage, calculer la surface du logo ; 3·6
+Déterminer le domaine de définition des fonctions suivantes ; 5·1
+Donner les zéros et les pôles de f en précisant leurs multiplicités, puis dresser le tableau de signes ; 4
+Trouver deux nombres réels a et b tels que f(x) = a + b/(x^2 - 4) ; 5·5
+Déterminer toutes les asymptotes de Cf ; 4
+Trouver l'ensemble J tel que f soit une bijection de I vers J, puis donner sa réciproque ; 5·2
+Déterminer les minima et maxima de f(x) = x^2 + x + 2 sur les intervalles suivants ; 5·6
+Calculer le quotient et le reste de la division du polynôme f par le polynôme g ; 6·4
+Décomposez en un produit de facteurs les polynômes suivants et étudiez leurs signes ; 6·7
+Résoudre les équations pour x, y, h ou v ; 6·9
+Déterminer m pour que les vecteurs suivants soient colinéaires ; 7·7·2
+Montrer que A, B, C sont alignés ; 7·9·7
+Calculer l'angle entre a et b sachant que ||a|| = 3, ||b|| = 4 ; 7·9·8
+# --- saisies courtes (début de mots, sans accent)
+resoudre ; 1
+proj point ; 7·3
+perpendic ; 7·7·1
+volume ; 7·6
+compos base ; 7·8·1
+orthonorm ; 7·8·3
+constr bon ; 7·8·4
+chasles libre ; 3·4
+surface ; 3·6
+domaine ; 5·1
+zero pole ; 4
+asym ; 4
+tels ; 5·5
+bijection ; 5·2
+minima ; 5·6
+max trinome ; 5·6
+quotient ; 6·4
+fact signe ; 6·7
+isoler ; 6·9
+colin param ; 7·7·2
+align ; 7·9·7
+angle sachant ; 7·9·8
+milieu ; 7·9·1
+gravite ; 7·9·2
+aire quadrillage ; 3·6

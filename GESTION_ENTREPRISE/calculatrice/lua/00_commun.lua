@@ -1,6 +1,8 @@
 -- 00_commun.lua : outils communs du classeur compta (charge en premier, apres le socle)
 TITRE_APP = "Compta – solveur"
 MENUS_COMPTA = {}   -- chaque module ajoute : table.insert(MENUS_COMPTA, {ordre = n, titre = "…", items = {{"libellé", fonction}, …}})
+-- entrée indexée pour la recherche : {"libellé", fonction, forts = "mots forts", mots = "mots partagés", si = "à choisir si…"}
+-- (99_menu en tire INDEX_SOLVEURS, voir CONVENTIONS-MODULES.md)
 do   -- tout dans un bloc : limite de 200 variables locales du script principal
 
 -- nombres : accepte 12'500, 12 500, 12500.5, 12,5 (virgule décimale), 15% -> 0.15, expressions simples (1200*3, 15+10+30)
@@ -139,8 +141,14 @@ local function commentaire(valeur, norme, ok, consequence)
   G("Commentaire : " .. valeur .. (norme and (" ; valeur indicative " .. norme) or "") .. " → " .. (ok and "satisfaisant" or "insuffisant") .. ". " .. (consequence or ""))
 end
 
+-- sous-menu : entrée {libellé, fonction, sous = items} ; 99_menu parcourt « sous » pour construire l'index de recherche
+-- (chemins « 2·3·1 » toujours cohérents avec les menus). 9 entrées au plus par menu (un écran, touches 1-9).
+local function sousMenu(lib, titre, items)
+  return {lib, function() MENU = {titre = titre, items = items}; sel = 1; ecran = "menu"; inval() end, sous = items}
+end
+
 -- rend les helpers visibles aux modules suivants
 COMMUN = {num = num, pct = pct, dec2 = dec2, montant = montant, estExpr = estExpr, exprTexte = exprTexte,
   lireChamps = lireChamps, formulaire = formulaire, questionnaire = questionnaire, calc = calc, commentaire = commentaire,
-  aideChamps = aideChamps}
+  aideChamps = aideChamps, sousMenu = sousMenu}
 end

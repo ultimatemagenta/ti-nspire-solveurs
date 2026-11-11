@@ -260,12 +260,19 @@ do
   local function saisir(msg, defaut, nom)
     return function() demander(msg, function(t) SOLVEURS[nom](t) end, defaut) end
   end
+  -- forts / mots / si : index de la recherche (99_menu) ; radicaux sans accents (voir CONVENTIONS-MODULES.md)
   table.insert(MENUS_COMPTA, {ordre = 70, titre = "Finance (hors cours)", items = {
-    {"Intérêts, escompte", saisir("c capital ; t taux ; j jours ; n années ; m périodes ; esc ; de délai escompte ; dp délai paiement", DEF_INT, "finInterets")},
-    {"Emprunt, plan de remboursement", saisir("k capital ; t taux ; n années ; type 1 annuités constantes / 2 amortissement constant", DEF_EMP, "finEmprunt")},
-    {"VAN, TRI, délai de récupération", saisir("i0 investissement ; cf=flux,flux,… ; t taux d'actualisation", DEF_INV, "finInvest")},
-    {"Amortissements linéaire, dégressif", saisir("v valeur d'acquisition ; n durée ; vr valeur résiduelle ; td taux dégressif", DEF_AMO, "finAmort")},
-    {"TVA : HT/TTC, décompte", saisir("t taux ; ht ou ttc ; vht ventes HT ; aht achats HT ; ti taux impôt préalable", DEF_TVA, "finTVA")},
-    {"Marge, marque, coefficients", saisir("pa prix d'achat ; pv ou maj (majoration) ou mq (marque) ; tva", DEF_PRIX, "finPrix")},
+    {"Intérêts, escompte", saisir("c capital ; t taux ; j jours ; n années ; m périodes ; esc ; de délai escompte ; dp délai paiement", DEF_INT, "finInterets"),
+      forts = "interet escompte", mots = "capital taux jours", si = "hors cours"},
+    {"Emprunt, plan de remboursement", saisir("k capital ; t taux ; n années ; type 1 annuités constantes / 2 amortissement constant", DEF_EMP, "finEmprunt"),
+      forts = "emprunt annuite remboursement", mots = "plan", si = "hors cours"},
+    {"VAN, TRI, délai de récupération", saisir("i0 investissement ; cf=flux,flux,… ; t taux d'actualisation", DEF_INV, "finInvest"),
+      forts = "van tri actualisation recuperation", mots = "investissement", si = "hors cours"},
+    {"Amortissements linéaire, dégressif", saisir("v valeur d'acquisition ; n durée ; vr valeur résiduelle ; td taux dégressif", DEF_AMO, "finAmort"),
+      forts = "lineaire degressif", mots = "amortissement valeur residuelle", si = "hors cours"},
+    {"TVA : HT/TTC, décompte", saisir("t taux ; ht ou ttc ; vht ventes HT ; aht achats HT ; ti taux impôt préalable", DEF_TVA, "finTVA"),
+      forts = "tva ht ttc", mots = "decompte impot prealable", si = "hors cours"},
+    {"Marge, marque, coefficients", saisir("pa prix d'achat ; pv ou maj (majoration) ou mq (marque) ; tva", DEF_PRIX, "finPrix"),
+      forts = "marque coefficient majoration", mots = "marge prix achat vente", si = "hors cours"},
   }})
 end

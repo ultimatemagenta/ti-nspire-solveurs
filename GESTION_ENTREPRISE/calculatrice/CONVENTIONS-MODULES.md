@@ -19,6 +19,30 @@ hors-cours marqué « (hors cours) » dans les titres), deux classeurs avec socl
 - Exposer les solveurs pour les tests : `SOLVEURS.nomCourt = fonction` (arguments = chaînes, comme une saisie).
 - Ajouter le menu : `table.insert(MENUS_COMPTA, {ordre = N, titre = "…", items = {{"libellé", function() … end}, …}})`.
   Ordres : 10 aide-mémoire, 37 réserves latentes, 44 résultat/seuil, 51 analyse de bilan, 57 trésorerie, 59 coûts, 70 finance (hors cours).
+- **9 entrées au plus par menu** (un écran, touches 1-9). Au-delà : sous-menu `COMMUN.sousMenu("libellé", "titre", {entrées…})`
+  (jamais un `MENU = …` construit dans une fonction : l'index ne le verrait pas).
+- **Libellés** : les mots des consignes du prof (« Point mort en quantité », « Prix minimum, baisse en % »), pas le nom de l'exercice modèle
+  (« Licence », « Lot ») ni un numéro d'article ; 34 caractères au plus.
+
+## Index de recherche (obligatoire pour tout nouveau solveur)
+Dans n'importe quel menu, une lettre ouvre « Trouver un solveur » (moteur `CHERCHE` du socle, `tools/nspire/socle_debut.lua`) ; les
+chiffres 1-9 restent au menu. Le moteur lit la table globale `INDEX_SOLVEURS`, au format commun aux classeurs compta et maths :
+`{titre = "…", chemin = "2·3·1", forts = {"…"}, mots = {"…"}, si = "…", ouvrir = function() … end}`.
+- Dans le classeur compta, on ne l'écrit pas à la main : chaque **entrée de menu** porte trois champs, et `99_menu.lua` en tire
+  `INDEX_SOLVEURS` avec le chemin calculé (il suit donc les menus) :
+  `{"Ducroire", function() … end, forts = "ducroire", mots = "creance client provision risque perte", si = "seul poste : le ducroire (x % des créances)"}`.
+- `forts` (3 points par mot tapé qui y colle) : 1 à 5 mots qui ne désignent que ce solveur, ou le mot de sa famille (`seuil`).
+  `mots` (1 point) : mots de la consigne partagés avec d'autres solveurs (`benefice`, `stock`, `tableau`), sigles (`pm`, `rl`, `fp`, `can`).
+  Les mots du libellé comptent d'office comme `mots`.
+- Écrire des **radicaux en minuscules, sans accents** : `maxim` couvre maximale et maximum, `graph` couvre graphiquement, `distribu`
+  couvre distribués. Sigles de 2 lettres : égalité stricte. Verbes vides (calculer, déterminer, trouver, donner) ignorés ; les verbes qui
+  orientent (dresser, établir, présenter, journaliser, montrer, comparer, apprécier) vont dans l'index.
+- `si` : 45 caractères au plus, réponse à « je choisis celui-ci quand… » (« un seul poste », « plusieurs entreprises »).
+- Prendre les mots dans les **consignes réelles** (`examens/*/txt/enonce.md`, `exercices/chap-*/txt/enonce-*.md`), puis ajouter la consigne
+  à `consignes-test.txt` (même dossier) et vérifier :
+  `PYTHONIOENCODING=utf-8 python tools/nspire/test_pc.py GESTION_ENTREPRISE/calculatrice/compta.lua --cherche-tout GESTION_ENTREPRISE/calculatrice/consignes-test.txt`
+  (rang de chaque attendu, totaux « en tête » / « dans les 3 premiers », chemins de l'index rejoués dans les menus ; échoue si un attendu
+  sort des 3 premiers). Une saisie isolée : `… test_pc.py …/compta.lua --cherche "max stock"` (top 5, frappe simulée, ENTER, esc).
 - API du socle (fonctions locales déjà visibles) :
   - document : `vider()`, `T(titre)`, `X(texte)`, `G(texte gris)`, `A(alerte rouge)`, `R(avant, expr, apres)` (résultat vert ; pour du texte pur : `R("texte", "", "")`), `montrer(titreEcran)` ;
   - **tableaux** : `GRILLE(titre, lignes, {entetes = {"", "N", "N-1"}})`, chaque ligne `{"libellé", "montant1", "montant2", gras = true, trait = true, fond = true, retrait = 1}` ;

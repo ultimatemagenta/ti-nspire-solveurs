@@ -414,13 +414,28 @@ do
   local function saisir(msg, defaut, nom)
     return function() demander(msg, function(t) SOLVEURS[nom](t) end, defaut) end
   end
+  -- forts / mots / si : index de la recherche (99_menu) ; radicaux sans accents (voir CONVENTIONS-MODULES.md)
   table.insert(MENUS_COMPTA, {ordre = 57, titre = "Trésorerie (57)", items = {
-    {"Tableau des liquidités", saisir("Compte=N-1/N ; « -Compte » au passif (banque c/c)", DEF_LIQ, "tresoLiq")},
-    {"Cash flow direct / indirect", saisir("CR : ven ach sal loy ace aut cf pf amo nm pvc pc ; N-1/N : cre sto ara dfo pre ; bn", DEF_CF, "tresoCF")},
-    {"Tableau des flux complet", saisir("L Compte=N-1/N ; CR ; BFR N-1/N ; imo ces ifi dlt cap div", DEF_TFT, "tresoTFT")},
-    {"Effets des opérations", function() SOLVEURS.tresoEffets() end},
-    {"Ratios de cash flow, free cash flow", saisir("cf ; can ; bn ; inv (ou ai1 ai2 amo pcess bcess) ; ce liq cre", DEF_RAT, "tresoRatios")},
-    {"BFR, cycle de trésorerie (hors cours)", saisir("sto pramv cre ca dfo ach ; j = jours", DEF_BFR, "tresoBFR")},
-    {"Budget de trésorerie (hors cours)", saisir("si ; mois=… ; enc=… ; dec=… ; min", DEF_BUD, "tresoBudget")},
+    {"Tableau des liquidités", saisir("Compte=N-1/N ; « -Compte » au passif (banque c/c)", DEF_LIQ, "tresoLiq"),
+      forts = "liquidite tableau", mots = "tresorerie etablir caisse poste banque variation",
+      si = "variation des liquidités (caisse, poste, banque)"},
+    {"Cash flow direct / indirect", saisir("CR : ven ach sal loy ace aut cf pf amo nm pvc pc ; N-1/N : cre sto ara dfo pre ; bn", DEF_CF, "tresoCF"),
+      forts = "cash flow indirect methode", mots = "direct calcul presenter augmentation liquidite secteur exploitation cf",
+      si = "cash flow d'exploitation seul (dir. / indir.)"},
+    {"Tableau des flux complet", saisir("L Compte=N-1/N ; CR ; BFR N-1/N ; imo ces ifi dlt cap div", DEF_TFT, "tresoTFT"),
+      forts = "flux tft", mots = "tableau tresorerie secteur exploitation investissement financement direct methode complet cash flow",
+      si = "tableau des flux : 3 secteurs"},
+    {"Effets des opérations", function() SOLVEURS.tresoEffets() end,
+      forts = "effet operation", mots = "indiquer resultat liquidite rn liq",
+      si = "effet de chaque opération sur RN / LIQ"},
+    {"Ratios de cash flow, endettement", saisir("cf ; can ; bn ; inv (ou ai1 ai2 amo pcess bcess) ; ce liq cre", DEF_RAT, "tresoRatios"),
+      forts = "facteur free effectif qualite", mots = "cash flow ratio endettement investissement net evaluer marge",
+      si = "facteur d'endettement, free cash flow, qualité"},
+    {"BFR, cycle de trésorerie (hors cours)", saisir("sto pramv cre ca dfo ach ; j = jours", DEF_BFR, "tresoBFR"),
+      forts = "bfr besoin", mots = "fonds roulement cycle tresorerie",
+      si = "hors cours"},
+    {"Budget de trésorerie (hors cours)", saisir("si ; mois=… ; enc=… ; dec=… ; min", DEF_BUD, "tresoBudget"),
+      forts = "encaissement decaissement budget", mots = "tresorerie mois plan",
+      si = "hors cours"},
   }})
 end

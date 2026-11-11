@@ -462,11 +462,11 @@ do
   end
   local function licence(v)
     vider()
-    T("Licence : quantité, prix min., baisse")
+    T("Prix minimum, baisse en % (44.16)")
     G("Méthode (modèle : 44.16) : a) à couvrir = CF + BN, divisé par la marge sur coût variable unitaire ; b) marge minimale = CF ÷ commande minimale, prix = coût + marge ; c) nouvelle marge, seuils ancien et nouveau (unité supérieure), augmentation en %.")
     licenceCorps(v)
     G("Défaut = 44.16 (prof : 5'750 ; 116.00 ; 4'500 → 6'429, +1'929, 42.9 %).")
-    montrer("Licence")
+    montrer("Prix minimum, baisse")
   end
   SOLVEURS.licence = lancer(CH_L, licence)
 
@@ -499,7 +499,7 @@ do
   }
   local function lot(v)
     vider()
-    T("Lot : changement de prix")
+    T("Prix changé en cours de vente")
     G("Méthode (modèle : 44.12) : les unités déjà vendues ont couvert une partie des frais fixes à l'ancienne marge ; le solde se couvre à la nouvelle marge. Nouveau seuil = déjà vendues + supplément.")
     local qa, pa, pv, cf, qv, npv = v.qa or 0, v.pa or 0, v.pv or 0, v.cf or 0, v.qv or 0, v.npv or 0
     local m1 = pv - pa
@@ -670,20 +670,143 @@ do
   SOLVEURS.multi = lancer(CH_M, multi)
 
   ------------------------------------------------------------------ menu
+  ------------------------------------------------------------------ B11 lecture inverse du graphique du seuil
+  -- valeurs lues sur le graphique (ou données) -> PV, MB unitaire, PM ; résultat pour un CA / une quantité ; CA pour un résultat visé
+  local CH_LG = {
+    {cle = "q1", lib = "Quantité lue sous un point de la droite du CAN", defaut = "40000", opt = true,
+      aide = "Choisir un point net de la droite du CAN (au bout du graphique). 44.14 : 40'000 unités. Vide si le prix de vente est donné."},
+    {cle = "ca1", lib = "CAN lu à cette quantité", defaut = "800000", opt = true, aide = "Ordonnée du même point. 44.14 : 800'000. PV = CAN ÷ quantité."},
+    {cle = "pv", lib = "ou prix de vente unitaire donné", defaut = "", opt = true, aide = "Remplace la lecture précédente s'il est donné (test 2025 ex. 8 : 15)."},
+    {cle = "q2", lib = "Quantité lue sous un point de la marge brute", defaut = "25000", opt = true,
+      aide = "Point net de la droite de marge brute (part du point 0). 44.14 : 25'000. Vide si le coût variable unitaire est donné."},
+    {cle = "mb2", lib = "Marge brute lue à cette quantité", defaut = "200000", opt = true, aide = "44.14 : 200'000. MB unitaire = MB ÷ quantité."},
+    {cle = "cv", lib = "ou coût variable unitaire donné", defaut = "", opt = true, aide = "Remplace la lecture de la marge brute (test 2025 ex. 8 : 9). MB unitaire = PV − CV."},
+    {cle = "ff", lib = "Frais fixes (droite horizontale)", defaut = "150000", aide = "Hauteur de la droite des frais fixes, lue sur l'axe vertical. 44.14 : 150'000."},
+    {cle = "bn", lib = "Résultats visés (perte en négatif)", defaut = "50000", texte = true, opt = true,
+      aide = "Un ou plusieurs bénéfices visés séparés par des espaces ; perte nette en négatif. Test 2025 ex. 8 : 0 30000 -60000. Donne le CA et la quantité."},
+    {cle = "cas", lib = "CA lus ou donnés (résultat cherché)", defaut = "", texte = true, opt = true,
+      aide = "CA pour lesquels on cherche le bénéfice ou la perte, séparés par des espaces. Vide = aucun."},
+    {cle = "qs", lib = "Quantités lues ou données (résultat cherché)", defaut = "", texte = true, opt = true,
+      aide = "Quantités pour lesquelles on cherche le bénéfice ou la perte, séparées par des espaces. Vide = aucune."},
+  }
+  local function nombres(s)
+    local t = {}
+    for m in tostring(s or ""):gsub("'", ""):gmatch("%S+") do local x = num(m); if x then table.insert(t, x) end end
+    return t
+  end
+  local function lectureGraphe(v)
+    vider()
+    T("Lire le graphique du seuil")
+    G("Méthode (modèles : 44.14 ; 44.13, test 2025 ex. 8) : chaque droite part d'un point connu. Le CAN part de 0 : sa pente est le prix " ..
+      "de vente (CAN lu ÷ quantité lue). La marge brute part de 0 : sa pente est la MB unitaire. Les frais fixes sont la droite horizontale. " ..
+      "Puis : quantité au PM = FF ÷ MB unitaire ; CA visé = (FF + BN) ÷ taux de MB.")
+    local pv, mbu = v.pv, nil
+    T("c) Prix de vente unitaire")
+    if nz(pv) then X("Prix de vente donné : " .. m2(pv))
+    elseif nz(v.q1) and v.ca1 then pv = v.ca1 / v.q1; calc("Prix de vente unitaire", "CAN lu ÷ quantité lue", mt(v.ca1) .. " ÷ " .. mt(v.q1), m2(pv))
+    else A("Il faut un point de la droite du CAN (quantité et CAN) ou le prix de vente."); montrer("Lecture du graphique"); return end
+    if nz(v.cv) then mbu = pv - v.cv; calc("Marge brute unitaire", "PV − CV", m2(pv) .. " − " .. m2(v.cv), m2(mbu))
+    elseif nz(v.q2) and v.mb2 then mbu = v.mb2 / v.q2; calc("Marge brute unitaire", "marge brute lue ÷ quantité lue", mt(v.mb2) .. " ÷ " .. mt(v.q2), m2(mbu))
+    else A("Il faut un point de la droite de marge brute ou le coût variable unitaire."); montrer("Lecture du graphique"); return end
+    if mbu <= EPS then A("Marge brute unitaire nulle ou négative : pas de point mort."); montrer("Lecture du graphique"); return end
+    local cv, ff, taux = pv - mbu, v.ff or 0, mbu / pv
+    calc("Coût variable unitaire", "PV − MB unitaire", m2(pv) .. " − " .. m2(mbu), m2(cv))
+    calc("Taux de marge brute", "MB unitaire × 100 ÷ PV", m2(mbu) .. " × 100 ÷ " .. m2(pv), tx(taux))
+    T("d) Point mort")
+    local qpm = ff / mbu
+    calc("Quantité au PM", "FF ÷ MB unitaire", mt(ff) .. " ÷ " .. m2(mbu), dec(qpm) .. (math.abs(qpm - sup(qpm)) > 1e-6 and (" → " .. fmt(sup(qpm))) or ""))
+    calc("CAN au PM", "quantité au PM × PV", dec(qpm) .. " × " .. m2(pv), mt(qpm * pv))
+    G("Sur le graphique : le PM est l'intersection CAN / prix de revient, à la verticale de l'intersection marge brute / frais fixes.")
+    local L, rep = {}, {{q = qpm}}
+    local vis = nombres(v._txt and v._txt.bn or v.bn)
+    if #vis > 0 then
+      T("e) CA pour un résultat visé")
+      for _, b in ipairs(vis) do
+        local ca = (ff + b) / taux
+        local nom = math.abs(b) < EPS and "PM (BN = 0)" or (b > 0 and ("BN = " .. mt(b)) or ("PN = " .. mt(-b)))
+        calc("CA (" .. nom .. ")", "(FF + BN) × 100 ÷ taux de MB", "(" .. mt(ff) .. (b >= 0 and " + " or " − ") .. mt(math.abs(b)) .. ") × 100 ÷ " .. tx(taux):gsub(" %%", ""), mt(ca))
+        table.insert(L, {nom, dec(ca / pv), mt(ca)})
+        table.insert(rep, {q = ca / pv})
+      end
+      G("Lecture : BN = écart vertical entre CAN et prix de revient (ou entre marge brute et frais fixes) à droite du PM ; à gauche, l'écart est une perte.")
+    end
+    local cas, qs = nombres(v._txt and v._txt.cas or v.cas), nombres(v._txt and v._txt.qs or v.qs)
+    if #cas + #qs > 0 then
+      T("Résultat pour un CA ou une quantité")
+      for _, ca in ipairs(cas) do
+        local r = ca * taux - ff
+        calc("Résultat (CA " .. mt(ca) .. ")", "CA × taux de MB − FF", mt(ca) .. " × " .. tx(taux) .. " − " .. mt(ff), mt(r) .. (r >= 0 and " (bénéfice)" or " (perte)"))
+        table.insert(L, {"CA " .. mt(ca), dec(ca / pv), mt(ca)})
+        table.insert(rep, {q = ca / pv})
+      end
+      for _, q in ipairs(qs) do
+        local r = q * mbu - ff
+        calc("Résultat (" .. mt(q) .. " u)", "quantité × MB unitaire − FF", mt(q) .. " × " .. m2(mbu) .. " − " .. mt(ff), mt(r) .. (r >= 0 and " (bénéfice)" or " (perte)"))
+        table.insert(L, {mt(q) .. " u", mt(q), mt(q * pv)})
+        table.insert(rep, {q = q})
+      end
+    end
+    if #L > 0 then GRILLE("Points à repérer", L, {entetes = {"Cas", "Quantité", "CAN"}}) end
+    local mx = 0
+    for _, r in ipairs(rep) do mx = math.max(mx, r.q) end
+    graphique(pv, cv, ff, qmaxRond(math.max(mx, v.q1 or 0) * 1.15), rep)
+    G("Défaut = 44.14 (prof : PV 20.00 ; MB unitaire 8.00 ; PM 18'750 unités et 375'000 ; BN 50'000 → CA 500'000). " ..
+      "Test 2025 ex. 8 : PV 15, CV 9, FF 150'000, résultats 0 30000 -60000 → 375'000 ; 450'000 ; 225'000.")
+    montrer("Lecture du graphique")
+  end
+  SOLVEURS.lectureGraphe = lancer(CH_LG, lectureGraphe)
+
+  local SM = COMMUN.sousMenu
+  -- forts / mots / si : index de la recherche (99_menu) ; radicaux sans accents (voir CONVENTIONS-MODULES.md)
   table.insert(MENUS_COMPTA, {ordre = 44, titre = "Compte de résultat, seuil (44)", items = {
-    {"CR à 2 degrés, PRAMA, PRAMV, CAN", menu("CR à 2 degrés", CH_CR, cr2)},
-    {"Seuil en quantité, bénéfice visé", menu("Seuil en quantité", CH_Q, seuilQ)},
-    {"Seuil en valeur (taux de marge)", menu("Seuil en valeur", CH_V, seuilV)},
-    {"Base du taux, CAN depuis la MB", menu("Base du taux", CH_T, tauxBase)},
-    {"Budget : PM, résultat, prévisions", menu("Budget", CH_B, budget)},
-    {"CR prévisionnel, date du PM", menu("CR prévisionnel", CH_P, crPrev)},
-    {"Graphique du seuil", menu("Graphique du seuil", CH_G, seuilGraphe)},
-    {"Licence : quantité, prix min., baisse", menu("Licence", CH_L, licence)},
-    {"Test 2025 ex. 10 (prof + livre)", licence2025},
-    {"Lot : changement de prix", menu("Lot", CH_LOT, lot)},
-    {"Taux de remplissage", menu("Remplissage", CH_R, remplissage)},
-    {"Marge contributive (théorie)", theorie},
-    {"Marge de sécurité, levier (hors cours)", menu("Marge de sécurité", CH_S, securite)},
-    {"Seuil multiproduits (hors cours)", menu("Multiproduits", CH_M, multi)},
+    {"CR à 2 degrés, PRAMA, PRAMV, CAN", menu("CR à 2 degrés", CH_CR, cr2),
+      forts = "degres prama pramv can dresser", mots = "compte resultat cr marge brute exploitation net achats ventes deductions mettre evidence",
+      si = "CR à 2 degrés sur marchandises (MB, BN)"},
+    {"Point mort en quantité", menu("Seuil en quantité", CH_Q, seuilQ),
+      forts = "combien quantite nombre seuil", mots = "point mort pm rentabilite benefice vise vendre vendus unite paquet article quotidien jour atteindre",
+      si = "prix et coût unitaires, réponse en unités"},
+    {"Point mort en CHF (CA)", menu("Seuil en valeur", CH_V, seuilV),
+      forts = "ca seuil valeur rentabiliser", mots = "chiffre affaires point mort pm taux marge brute benefice realiser fonds propres formule",
+      si = "CA et PRAMV (taux de MB), réponse en CHF"},
+    {"Taux de marge : base, CAN", menu("Base du taux", CH_T, tauxBase),
+      forts = "base taux", mots = "marge pramv can mb brute pourcentage chiffre affaires net",
+      si = "taux en % du PRAMV ↔ % du CA ; CAN depuis la MB"},
+    {"Budget : nouveau PM, prévisions", menu("Budget", CH_B, budget),
+      forts = "budget prevision nouveau maintenir seuil", mots = "pm point mort resultat benefice hausse baisse reste meme valeur",
+      si = "CR budgété : nouveau PM, BN si le CA change"},
+    {"CR prévisionnel, date du PM", menu("CR prévisionnel", CH_P, crPrev),
+      forts = "previsionnel date", mots = "compte resultat cr degres point mort seuil annee prochaine budgete presenter atteint",
+      si = "CR de l'an prochain ; date où le PM est atteint"},
+    SM("Graphique du seuil : tracer, lire", "Graphique du seuil", {
+      {"Tracer le graphique (montrer)", menu("Graphique du seuil", CH_G, seuilGraphe),
+        forts = "graph montrer representer tracer", mots = "droite point mort seuil chiffre affaires realiser perte benefice nette quantite",
+        si = "« montrer graphiquement » : tracer 4 droites"},
+      {"Lire le graphique (inverse)", function() COMMUN.questionnaire("Lecture du graphique", CH_LG, function(v) lectureGraphe(v) end) end,
+        forts = "lire lu lecture partir inverse", mots = "graph prix vente unitaire chiffre affaires point mort seuil quantite benefice perte resultat",
+        si = "valeurs lues sur le graphique → PV, PM, BN"},
+    }),
+    {"Prix minimum, baisse en %", menu("Licence", CH_L, licence),
+      forts = "minimum pourcentage licence", mots = "prix commande reduction baisse augmentation volume ventes couvrir nombre vendre benefice point mort seuil importation synthetiseur",
+      si = "prix minimum, ou baisse de prix → volume en %"},
+    SM("Autres cas, théorie", "Seuil : autres cas, théorie", {
+      {"Prix changé en cours de vente", menu("Lot", CH_LOT, lot),
+        forts = "lot changement solde", mots = "prix nouveau seuil deja vendu sapin cours vente modifie",
+        si = "prix modifié en cours de vente (lot acheté)"},
+      {"Taux de remplissage", menu("Remplissage", CH_R, remplissage),
+        forts = "remplissage occupation passager personne transporter", mots = "compagnie avion capacite taux seuil place siege",
+        si = "capacité fixe : taux d'occupation au seuil"},
+      {"Test 2025 ex. 10 (prof + livre)", licence2025,
+        forts = "2025", mots = "test licence synthetiseur prof",
+        si = "chiffres du corrigé du prof (850 ; 6'750)"},
+      {"Marge contributive (théorie)", theorie,
+        forts = "contributive citer theorie", mots = "cout fixe variable definition element frais",
+        si = "citer des coûts fixes / variables"},
+      {"Marge de sécurité, levier (hors cours)", menu("Marge de sécurité", CH_S, securite),
+        forts = "securite levier operationnel", mots = "marge",
+        si = "hors cours"},
+      {"Seuil multiproduits (hors cours)", menu("Multiproduits", CH_M, multi),
+        forts = "multiproduit mix", mots = "plusieurs produits seuil",
+        si = "hors cours"},
+    }),
   }})
 end

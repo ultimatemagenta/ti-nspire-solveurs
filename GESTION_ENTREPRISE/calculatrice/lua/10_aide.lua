@@ -26,7 +26,7 @@ do
     return {lib, f}
   end
   local function sousMenu(lib, titre, items)
-    return {lib, function() MENU = {titre = titre, items = items}; sel = 1; ecran = "menu"; inval() end}
+    return COMMUN.sousMenu(lib, titre, items)
   end
 
   ------------------------------------------------------------------ révision du 12.11
@@ -365,7 +365,8 @@ do
   end)
 
   local tableaux = sousMenu("Tableaux vides", "Tableaux vides", {
-    tBilan, tCR2, tCR3, tCRliste, tRL, tStock, tTitres, tSeuil, tRatios, tLiq, tTFT, tCMP,
+    tBilan, sousMenu("Comptes de résultat", "Comptes de résultat (vides)", {tCR2, tCR3, tCRliste}), tRL, tStock, tTitres, tSeuil, tRatios,
+    sousMenu("Trésorerie (57)", "Trésorerie (vides)", {tLiq, tTFT}), tCMP,
   })
 
   ------------------------------------------------------------------ schémas
@@ -832,7 +833,12 @@ do
     G("Ce classeur ne va pas au test (calculatrice simple, sans résumé) : tout ici doit être su par cœur.")
   end)
 
+  -- quelques écrans indexés pour la recherche (consignes « nommer les droites », « base légale », « expliquez ce que… »)
+  sGraphe.forts, sGraphe.mots, sGraphe.si = "nommer accolade quatre", "droite graph mesurer seuil", "nommer les 4 droites, les accolades"
+  co.forts, co.mots, co.si = "co article legal loi", "base choix evaluation 960", "base légale d'une évaluation"
+  phrases.forts, phrases.mots, phrases.si = "phrase commentaire", "expliquer signifient commenter interpretation ratio", "rédiger le commentaire d'un ratio"
+  table.insert(definitions.sous, co)   -- Articles du CO rangés sous Définitions (aide-mémoire : 9 entrées)
   table.insert(MENUS_COMPTA, {ordre = 10, titre = "Aide-mémoire", items = {
-    revision, tableaux, schemas, ratiosMenu, formules, definitions, co, pieges, phrases, sources,
+    revision, tableaux, schemas, ratiosMenu, formules, definitions, pieges, phrases, sources,
   }})
 end

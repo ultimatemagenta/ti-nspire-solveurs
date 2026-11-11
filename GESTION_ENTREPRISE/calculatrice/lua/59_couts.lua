@@ -266,7 +266,7 @@ do
     local dec, arr = v.dec or 4, v.arr or 0
     local function rr(x) return r0(x, arr) end
     vider()
-    T("Coûts complets en cascade")
+    T("Coûts : appro → prix de revient")
     G("Méthode : coût d'achat → stock de matières (CMP) → coût de production → stock de produits (CMP) → (2e atelier) → prix de " ..
       "revient → résultat. Chaque stock : CMP = (stock initial + entrées) ÷ quantités, " .. dec .. " décimales ; montants arrondis à " ..
       (arr == 0 and "l'unité" or (arr .. " déc.")) .. " (modèle : test 2026-02 ex. 3 b-i ; 59.15 avec mode=2).")
@@ -541,14 +541,31 @@ do
   local function saisir(msg, defaut, nom)
     return function() demander(msg, function(t) SOLVEURS[nom](t) end, defaut) end
   end
+  -- forts / mots / si : index de la recherche (99_menu) ; radicaux sans accents (voir CONVENTIONS-MODULES.md)
   table.insert(MENUS_COMPTA, {ordre = 59, titre = "Coûts (59)", items = {
-    {"Compte de stock au CMP", saisir("Stock : si date=q@cu ; e date=q@cu ; s date=q ; dec ; arr ; mode=g (période) ou p", DEF_STOCK, "coutsStock")},
-    {"Répartition des charges indirectes", saisir("sec=… ; aux=nb ; c Nom=montants ou total@clé ; k Section=clé ; uo=… ; nuo=… ; dec", DEF_REP, "coutsRepart")},
-    {"Coûts complets en cascade", saisir("mode 1 (CI appro en stock) / 2 (59.15) ; SI MP, achats, uoa ; ateliers h,t,n,c,q, stock sq,scu,so ; distribution nd,cd ; ventes vq,pv", DEF_CASC, "coutsCascade")},
-    {"Prix de revient d'une commande", saisir("Matières, CI appro (% ou /kg), MOD, CI ateliers u×c, distribution, prix et remise", DEF_CMD, "coutsCommande")},
-    {"Charges incorporables", saisir("cg = charges d'exploitation de la période ; montants annuels ; per = périodes par an", DEF_INC, "coutsIncorp")},
-    {"Résultat analytique → CG", saisir("ra = résultat analytique ; corrections", DEF_RCG, "coutsResCG")},
-    {"Résultat par département", saisir("Quantités, prix, charges directes ; fg réparti selon les articles", DEF_DEP, "coutsDept")},
-    {"Coût de l'unité d'œuvre", saisir("tot = charges ; p Nom=heures,classes", DEF_UO, "coutsUO")},
+    {"Compte de stock au CMP", saisir("Stock : si date=q@cu ; e date=q@cu ; s date=q ; dec ; arr ; mode=g (période) ou p", DEF_STOCK, "coutsStock"),
+      forts = "cmp pondere entree sortie", mots = "compte stock etablir presenter cout moyen matiere premiere achetee",
+      si = "entrées / sorties valorisées au CMP"},
+    {"Répartition des charges indirectes", saisir("sec=… ; aux=nb ; c Nom=montants ou total@clé ; k Section=clé ; uo=… ; nuo=… ; dec", DEF_REP, "coutsRepart"),
+      forts = "repartition indirecte section", mots = "charge tableau auxiliaire principale unite oeuvre etablir primaire secondaire cle",
+      si = "tableau de répartition (sections, clés)"},
+    {"Coûts : appro → prix de revient", saisir("mode 1 (CI appro en stock) / 2 (59.15) ; SI MP, achats, uoa ; ateliers h,t,n,c,q, stock sq,scu,so ; distribution nd,cd ; ventes vq,pv", DEF_CASC, "coutsCascade"),
+      forts = "approvisionnement transformation distribu complet cascade revient mois", mots = "cout prix production matiere premiere resultat atelier fabrication",
+      si = "cascade : appro → production → prix de revient"},
+    {"Prix de revient d'une commande", saisir("Matières, CI appro (% ou /kg), MOD, CI ateliers u×c, distribution, prix et remise", DEF_CMD, "coutsCommande"),
+      forts = "commande devis revient", mots = "prix remise mod produit resultat",
+      si = "une commande ou un produit : PR et résultat"},
+    {"Charges incorporables", saisir("cg = charges d'exploitation de la période ; montants annuels ; per = périodes par an", DEF_INC, "coutsIncorp"),
+      forts = "incorporable incorporee", mots = "charge cae periode mois montant",
+      si = "charges de la CG → charges incorporables"},
+    {"Résultat analytique → CG", saisir("ra = résultat analytique ; corrections", DEF_RCG, "coutsResCG"),
+      forts = "generale cg concordance", mots = "resultat analytique correction determination passage",
+      si = "résultat analytique → résultat de la CG"},
+    {"Résultat par département", saisir("Quantités, prix, charges directes ; fg réparti selon les articles", DEF_DEP, "coutsDept"),
+      forts = "departement", mots = "resultat produit frais generaux",
+      si = "résultat par produit / département"},
+    {"Coût de l'unité d'œuvre", saisir("tot = charges ; p Nom=heures,classes", DEF_UO, "coutsUO"),
+      forts = "oeuvre uo profil classe", mots = "cout unite heure tableau completer",
+      si = "coût par unité d'œuvre (profil, classe)"},
   }})
 end

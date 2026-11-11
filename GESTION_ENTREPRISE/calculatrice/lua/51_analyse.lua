@@ -1534,16 +1534,6 @@ function F.unRatio(id, brut)
   if d.src then G(d.src) end
   montrer(d.nom)
 end
-function F.menuRatios()
-  local it = {}
-  for _, d in ipairs(RAT) do
-    local dd = d
-    table.insert(it, {dd.nom, function()
-      COMMUN.questionnaire(dd.nom, F.champs(dd.champs, EX[dd.ex]), function(_, brut) F.unRatio(dd.id, brut) end)
-    end})
-  end
-  MENU = {titre = "Ratios un par un (26)", items = it}; sel = 1; ecran = "menu"; inval()
-end
 
 ------------------------------------------------------------------ questionnaires guidés (bilan analytique, chiffres clés)
 local AIDE_LISTE = "Format nom=montant (ex. Caisse=2600 ; déduction : ./.Ducroire=1200). Classement d'après le nom : caisse, poste, banque, titres → liquidités ; clients, ducroire → créances ; stock ; mobilier, machines, véhicules → AI ; fournisseurs → CE ct ; emprunt, hypothèque → CE lt ; capital, réserves, bénéfice. Forcer : ct:Banque=500."
@@ -1615,20 +1605,68 @@ SOLVEURS.frn = F.frnSeul
 SOLVEURS.vraiFaux = F.vraiFaux
 SOLVEURS.ratio = F.unRatio
 
+-- ratios un par un : un sous-menu par famille (9 entrées au plus par menu) ; chaque ratio est indexé pour la recherche
+-- mots forts : seulement ce qui ne désigne que ce ratio (le reste du nom compte comme « mots » via le titre)
+local FORTS_RATIO = {iac = "intensite", iai = "intensite", auto = "autofinancement", durcli = "accorde", durfrs = "obtenu",
+  dursto = "stationnement"}
+F.familles = {}
+do
+  local ordre, par = {}, {}
+  for _, d in ipairs(RAT) do
+    local dd = d
+    if not par[dd.fam] then par[dd.fam] = {}; table.insert(ordre, dd.fam) end
+    table.insert(par[dd.fam], {dd.nom, function()
+      COMMUN.questionnaire(dd.nom, F.champs(dd.champs, EX[dd.ex]), function(_, brut) F.unRatio(dd.id, brut) end)
+    end, forts = FORTS_RATIO[dd.id] or "", mots = "ratio seul un " .. dd.fam, si = "un seul ratio (" .. dd.fam .. ")"})
+  end
+  for _, fam in ipairs(ordre) do table.insert(F.familles, COMMUN.sousMenu(fam, fam, par[fam])) end
+end
+function F.menuRatios()
+  MENU = {titre = "Ratios un par un (26)", items = F.familles}; sel = 1; ecran = "menu"; inval()
+end
+
 -- chaque entrée pose les questions une par une (COMMUN.questionnaire), puis appelle le solveur avec « cle=valeur;… »
+-- forts / mots / si : index de la recherche (99_menu) ; radicaux sans accents (voir CONVENTIONS-MODULES.md)
 local function quest(titre, champs, f) return function() COMMUN.questionnaire(titre, champs, function(_, brut) f(brut) end) end end
+local SM = COMMUN.sousMenu
 table.insert(MENUS_COMPTA, {ordre = 51, titre = "Analyse de bilan et résultat (51)", items = {
-  {"Analyse complète, 26 ratios", quest("Analyse complète", F.champs(CH_ANA, EX_ANA), F.analyse)},
-  {"Ratios du bilan, 1 année", quest("Bilan (test 2025 ex. 3)", F.champs(CH_BIL, EX.T25), F.bilan)},
-  {"Comparer 1 à 5 bilans", function() F.qComparer(false) end},
-  {"Comparer X entreprises (ratios)", function() F.qComparer(true) end},
-  {"Bilan analytique (liste)", F.qAnalytique},
-  {"CR à degrés (balance)", quest("CR à degrés (51.19)", CH_CR, F.cr)},
-  {"Chiffres clés (années)", F.qCles},
-  {"Rotations et durées", quest("Rotations (51.24)", F.champs(CH_ROT, EX_ROT), F.rotations)},
-  {"ROI, ROE (+ levier, hors test)", quest("ROI, ROE (51.25)", F.champs(CH_REN, EX_REN), F.rentab)},
-  {"Fonds de roulement net", quest("FRN", F.champs(CH_FRN, EX.T25), F.frnSeul)},
-  {"Ratios un par un (26)", F.menuRatios},
-  {"Vrai / faux (51.15)", F.vraiFaux},
+  {"Analyse complète, 26 ratios", quest("Analyse complète", F.champs(CH_ANA, EX_ANA), F.analyse),
+    forts = "complete analyse 26", mots = "ratio bilan resultat commenter entreprise tous",
+    si = "bilan + CR : tous les ratios et commentaires"},
+  {"Ratios du bilan, 1 année", quest("Bilan (test 2025 ex. 3)", F.champs(CH_BIL, EX.T25), F.bilan),
+    forts = "ratio liquidite couverture", mots = "bilan annee degre endettement intensite financement expliquer signifie",
+    si = "une entreprise, une année : ratios du bilan"},
+  SM("Comparer des entreprises", "Comparer des entreprises", {
+    {"À partir des bilans (1 à 5)", function() F.qComparer(false) end,
+      forts = "comparer entreprise apprecier", mots = "bilan ratio trois plusieurs liquidite structure financement niveau",
+      si = "plusieurs bilans → ratios côte à côte"},
+    {"À partir des ratios calculés", function() F.qComparer(true) end,
+      forts = "comparer entreprise deja", mots = "ratio commenter chiffres obtenus structure financement apprecier",
+      si = "ratios déjà donnés : comparer, commenter"},
+  }),
+  {"Bilan analytique (liste)", F.qAnalytique,
+    forts = "analytique", mots = "bilan etablir structure repartition benefice apres structure",
+    si = "liste de postes → bilan structuré"},
+  {"CR à degrés (EBIT, marge éco.)", quest("CR à degrés (51.19)", CH_CR, F.cr),
+    forts = "ebit ebitda balance economique presenter", mots = "compte resultat cr degres evidence etablir marge",
+    si = "balance → CR à degrés : EBITDA, EBIT, BN"},
+  {"Rotations et durées", quest("Rotations (51.24)", F.champs(CH_ROT, EX_ROT), F.rotations),
+    forts = "rotation duree delai cycle", mots = "stock creance client fournisseur credit jour moyenne liquidite analyse",
+    si = "rotations, durées de crédit et de stockage"},
+  {"Rentabilité : ROI, ROE", quest("ROI, ROE (51.25)", F.champs(CH_REN, EX_REN), F.rentab),
+    forts = "rentabilite roi roe rci rfp rendement", mots = "fonds propres capitaux investis levier decomposer",
+    si = "rentabilité des FP (ROE) ou des capitaux (ROI)"},
+  SM("Ratios un par un (26)", "Ratios un par un (26)", F.familles),
+  SM("Chiffres clés, FRN, vrai / faux", "Chiffres clés, FRN, V/F", {
+    {"Chiffres clés (années)", F.qCles,
+      forts = "cles employe m2 surface", mots = "chiffre annees evolution affaires",
+      si = "CA par employé, au m², sur plusieurs années"},
+    {"Fonds de roulement net", quest("FRN", F.champs(CH_FRN, EX.T25), F.frnSeul),
+      forts = "frn roulement", mots = "fonds net",
+      si = "FRN = AC − CE à court terme"},
+    {"Vrai / faux (51.15)", F.vraiFaux,
+      forts = "vrai faux", mots = "affirmation analyse ratio toujours indique situation",
+      si = "affirmations sur les ratios (51.15)"},
+  }),
 }})
 end

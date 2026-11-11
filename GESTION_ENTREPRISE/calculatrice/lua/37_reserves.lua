@@ -738,32 +738,336 @@ do
   end
   SOLVEURS.theorieRL = theorie
 
+  ---------------------------------------------------------------- A14 bilan publié → bilan interne ; A15 répartition du bénéfice
+  -- saisie par COMMUN.questionnaire, un poste par question (« nom=montant »)
+  local function cle(s) return (CHERCHE.normaliser(s):gsub("%s+", " "):gsub("^ ", ""):gsub(" $", "")) end
+  local function poste(s)
+    local nom, val = tostring(s or ""):match("^%s*(.-)%s*=%s*(.-)%s*$")
+    if not nom or nom == "" then return nil end
+    return {nom = nom, v = evaluer(val), brut = val}
+  end
+  local function validerPoste(t)
+    if t == "" then return nil end
+    local p = poste(t)
+    if not p or (p.v == nil and not cle(p.brut):find("solde", 1, true)) then return "Format attendu : nom=montant (ex. Stock de marchandises=100)." end
+  end
+  local function lireTextes(brut, champs)
+    local v = {}
+    for _, c in ipairs(champs) do v[c.cle] = c.defaut or "" end
+    for paire in tostring(brut or ""):gmatch("[^;]+") do
+      local k, val = paire:match("^%s*([%w_]+)%s*=%s*(.-)%s*$")
+      if k then v[k] = val end
+    end
+    return v
+  end
+  local function lirePostes(v, prefixe, n)
+    local t = {}
+    for i = 1, n do local p = poste(v[prefixe .. i]); if p and p.v then table.insert(t, p) end end
+    return t
+  end
+  -- poste du bilan désigné par le nom d'une RL (« Stock » -> « Stock de marchandises »)
+  local function trouverPoste(lignes, nom)
+    local k = cle(nom)
+    for _, l in ipairs(lignes) do if cle(l.nom) == k then return l end end
+    for _, l in ipairs(lignes) do local c = cle(l.nom); if c:sub(1, #k) == k or k:sub(1, #c) == c then return l end end
+    local m1 = k:match("^(%S+)")
+    if m1 and #m1 >= 4 then for _, l in ipairs(lignes) do if cle(l.nom):find(m1, 1, true) then return l end end end
+  end
+  local function contient(nom, liste)
+    local c = " " .. cle(nom) .. " "
+    for _, m in ipairs(liste) do if c:find(m, 1, true) then return true end end
+    return false
+  end
+  local AI_MOTS = {"mobil", "immeub", " fac ", "machin", "equip", "materi", "vehic", "terrain", "install", "particip", "brevet", "immob", "agencement"}
+  local function sectionPassif(nom)
+    if contient(nom, {"capital", "reserve", "benefice", "perte", "report", "resultat"}) then return 3 end
+    if contient(nom, {"hypoth", "emprunt", "long", " lt ", "obligation", " pret"}) then return 2 end
+    return 1
+  end
+  -- un côté du bilan en sections, avec totaux par colonne ; lignes = {nom, x1, x2…, txt = {textes imposés}}
+  local function fpar(x) if x < 0 then return "(" .. f(-x) .. ")" end; return f(x) end   -- deduction : (20)
+  local function grilleCote(titre, entetes, secs, ncol, signes)
+    local L, tot = {}, {}
+    for j = 1, ncol do tot[j] = 0 end
+    for _, sct in ipairs(secs) do
+      if #sct[2] > 0 then
+        table.insert(L, {sct[1], gras = true, fond = true})
+        for _, l in ipairs(sct[2]) do
+          local t = {l[1], retrait = 1}
+          for j = 1, ncol do
+            t[j + 1] = (l.txt and l.txt[j]) or (l[j + 1] and fpar(l[j + 1]) or "")
+            tot[j] = tot[j] + (l[j + 1] or 0)
+          end
+          table.insert(L, t)
+        end
+      end
+    end
+    local t = {"Total", gras = true, trait = true}
+    for j = 1, ncol do t[j + 1] = (signes and signes[j]) and fs(tot[j]) or f(tot[j]) end
+    table.insert(L, t)
+    GRILLE(titre, L, {entetes = entetes})
+    return tot
+  end
+  local function sectionsActif(act, ligne)
+    local ac, ai = {}, {}
+    for _, l in ipairs(act) do table.insert(contient(l.nom, AI_MOTS) and ai or ac, ligne(l)) end
+    return {{"Actifs circulants", ac}, {"Actifs immobilisés", ai}}
+  end
+  local function sectionsPassif(pas, ligne)
+    local s = {{}, {}, {}}
+    for _, l in ipairs(pas) do table.insert(s[l.sec or sectionPassif(l.nom)], ligne(l)) end
+    return {{"Capitaux étrangers à ct", s[1]}, {"Capitaux étrangers à lt", s[2]}, {"Capitaux propres", s[3]}}
+  end
+  local function apur(x) if not x or math.abs(x) < 1e-9 then return "" end; return fs(x) end
+
+  local AIDE_ACTIF = "Un poste par question, nom=montant. Déduction en négatif : Ducroire=-20, FAC s/immeubles=-960. Vide = aucun poste."
+  local AIDE_PASSIF = "Un poste par question, nom=montant. Capital, réserves, bénéfice → fonds propres ; emprunt, hypothèque → CE à lt ; le reste → CE à ct."
+  local function champsPostes(ch, prefixe, lib, aide, defauts, n)
+    for i = 1, n do
+      table.insert(ch, {cle = prefixe .. i, lib = lib .. " " .. i .. " (nom=montant)", defaut = defauts[i] or "", texte = true, opt = true,
+        aide = aide, valider = validerPoste})
+    end
+  end
+
+  local CH_BI = {}
+  champsPostes(CH_BI, "a", "Actif publié", AIDE_ACTIF, {"Liquidités=12", "Créances clients=180", "Ducroire=-20", "Stock de marchandises=100", "Équipement=400"}, 8)
+  champsPostes(CH_BI, "p", "Passif publié", AIDE_PASSIF, {"Dettes fournisseurs=18", "Emprunt à long terme=200", "Capital-actions=300", "Réserves=50", "Bénéfice d'exploitation=104"}, 7)
+  champsPostes(CH_BI, "r", "RL sur un poste", "RL = valeur interne − valeur publiée (début du nom suffisant : Stock=20). Ducroire surévalué de 12 : Ducroire=12. Provision surévaluée de 30 : Provision=30.",
+    {"Ducroire=12", "Stock de marchandises=20", "Équipement=20"}, 5)
+  table.insert(CH_BI, {cle = "rli", lib = "RL au début de l'exercice (total)", defaut = "0", aide = "RL du bilan initial : ligne « Réserves latentes » des fonds propres ; seule la variation (finales − initiales) va au bénéfice. 37.5 : 0 (supposé)."})
+
+  -- écriture d'une RL : dissolution « poste / charge », constitution « charge / poste » (37.5, 37.15)
+  local function journalRL(nom, cote, constitution)
+    local charge
+    if cote == "p" then charge = "charge concernée"
+    elseif contient(nom, {"stock", "marchandise"}) then charge = constitution and "Variation de stocks" or "Charges de marchandises"
+    elseif contient(nom, {"ducroire", "provision", "creance"}) then charge = "Pertes s/créances"
+    elseif contient(nom, {"immeuble"}) and constitution then charge = "Charges d'immeubles"
+    else charge = "Amortissements" end
+    if constitution then return charge .. " / " .. nom, charge end
+    return nom .. " / " .. charge, charge
+  end
+
+  local function bilanInterne(brut)
+    local v = lireTextes(brut, CH_BI)
+    local act, pas, rls = lirePostes(v, "a", 8), lirePostes(v, "p", 7), lirePostes(v, "r", 5)
+    local rli = evaluer(v.rli) or 0
+    vider()
+    T("Bilan publié → bilan interne")
+    G("Méthode (modèle : 37.5 ; 37.4-37.6) : valeur interne = valeur publiée + apurement (la RL). Une RL sur un actif l'augmente ; un ducroire " ..
+      "surévalué diminue ; une provision (passif) surévaluée diminue. La variation des RL de l'exercice s'ajoute au bénéfice ; les RL " ..
+      "du début forment la ligne « Réserves latentes ». Total interne = total publié + RL.")
+    local tot = 0
+    local lignesRL = {}
+    for _, r in ipairs(rls) do
+      local l, cote = trouverPoste(act, r.nom), "a"
+      if not l then l, cote = trouverPoste(pas, r.nom), "p" end
+      if not l then A("RL « " .. r.nom .. " » : aucun poste du bilan ne porte ce nom (ignorée).")
+      else
+        l.ap = (l.ap or 0) + (cote == "a" and r.v or -r.v)
+        tot = tot + r.v
+        table.insert(lignesRL, {l.nom, r.v, cote})
+      end
+    end
+    local bn
+    for _, l in ipairs(pas) do if contient(l.nom, {"benefice", "resultat"}) and not contient(l.nom, {"report", "reserve"}) then bn = l end end
+    if not bn then A("Aucun poste « Bénéfice … » au passif : variation des RL portée sur une ligne à part."); bn = {nom = "Bénéfice", v = 0, sec = 3}; table.insert(pas, bn) end
+    bn.ap = (bn.ap or 0) + tot - rli
+
+    T("Tableau des réserves latentes")
+    local L = {}
+    for _, r in ipairs(lignesRL) do table.insert(L, {r[1], rli == 0 and "0" or "", f(r[2]), ""}) end
+    table.insert(L, {"Total", f(rli), f(tot), fs(tot - rli), gras = true, trait = true})
+    GRILLE("RL", L, {entetes = {"RL sur…", "Initial", "Final", "Variation"}})
+    if rli == 0 then G("Bilan initial : 0 (supposé), comme dans le corrigé 37.5.") end
+
+    T("Journal : dissolution des RL")
+    for _, r in ipairs(lignesRL) do X((journalRL(r[1], r[3], false)) .. " : " .. f(r[2])) end
+    COMMUN.calc("Bénéfice interne", "bénéfice publié + variation des RL", f(bn.v) .. " + " .. fp(tot - rli), f(bn.v + tot - rli))
+
+    T("Bilan final (avant répartition)")
+    local function ligne(l) return {l.nom, l.v, l.ap or 0, l.v + (l.ap or 0), txt = {nil, apur(l.ap)}} end
+    local ta = grilleCote("Actif", {"", "Publiée", "Apur.", "Interne"}, sectionsActif(act, ligne), 3, {false, true})
+    local secs = sectionsPassif(pas, ligne)
+    table.insert(secs[3][2], {"Réserves latentes", 0, rli, rli, txt = {"--", apur(rli), f(rli)}})
+    local tp = grilleCote("Passif", {"", "Publiée", "Apur.", "Interne"}, secs, 3, {false, true})
+    if math.abs(ta[1] - tp[1]) > 1e-6 then A("Bilan publié déséquilibré : actif " .. f(ta[1]) .. " ≠ passif " .. f(tp[1]) .. ". Vérifier les postes.") end
+    COMMUN.calc("Total interne", "total publié + RL", f(ta[1]) .. " + " .. fp(tot), f(ta[3]))
+    G("Défaut = 37.5 (prof : total 672 → 724 ; BN 104 → 156 ; ducroire (20) → (8) ; stock 100 → 120 ; équipement 400 → 420).")
+    montrer("Bilan interne")
+  end
+  SOLVEURS.bilanInterne = bilanInterne
+
+  local CH_REP = {
+    {cle = "bni", lib = "Bénéfice interne de l'exercice", defaut = "595", aide = "Bénéfice net de l'exercice au CR interne, avant les RL à constituer. 37.15 : 595."},
+    {cle = "cap", lib = "Capital-actions", defaut = "2000", aide = "Sert au dividende en % du capital."},
+    {cle = "div", lib = "Dividende (% du capital, ou montant)", defaut = "15%", aide = "15% = 15 % du capital-actions ; un montant (300) est pris tel quel."},
+    {cle = "res", lib = "Attribution à la réserve légale", defaut = "45", aide = "Augmentation de la réserve légale issue du bénéfice."},
+    {cle = "tan", lib = "Tantièmes", defaut = "50", aide = "Part du bénéfice versée au conseil d'administration (0 si aucune)."},
+    {cle = "bra", lib = "Bénéfice reporté au bilan (ancien)", defaut = "10", aide = "Solde du compte Bénéfice reporté avant la répartition."},
+    {cle = "brn", lib = "Bénéfice reporté voulu (nouveau)", defaut = "15", aide = "Solde voulu après la répartition : le bénéfice nécessaire en contient l'augmentation (nouveau − ancien)."},
+  }
+  champsPostes(CH_REP, "r", "RL à constituer", "poste=montant ou calcul : Stock de marchandises=219/3 (maximum autorisé : 1/3), Ducroire=1500*5%-40 (provision de 5 % moins le ducroire existant). Le poste =solde reçoit le reste.",
+    {"Stock de marchandises=219/3", "Ducroire=1500*5%-40", "FAC s/immeubles=40", "Mobilier=solde"}, 6)
+  champsPostes(CH_REP, "a", "Actif interne", "Bilan interne avant répartition, pour le bilan publié après répartition (vide partout = pas de bilan). Déduction en négatif : Ducroire=-40.",
+    {"Caisse=150", "Banque=450", "Titres=80", "Créances clients=1500", "Ducroire=-40", "Stock de marchandises=219", "Actifs transitoires=11", "Mobilier=400", "Immeubles=3250", "FAC s/immeubles=-960"}, 12)
+  champsPostes(CH_REP, "p", "Passif interne", "Bilan interne avant répartition, avec le bénéfice de l'exercice. " .. AIDE_PASSIF,
+    {"Dettes fournisseurs=615", "Dette hypothécaire=1640", "Capital-actions=2000", "Réserve légale s/bénéfices=200", "Bénéfice reporté=10", "Bénéfice de l'exercice=595"}, 8)
+
+  local function repartition(brut)
+    local v = lireTextes(brut, CH_REP)
+    local bni, cap, d = evaluer(v.bni) or 0, evaluer(v.cap) or 0, evaluer(v.div) or 0
+    local res, tan, bra, brn = evaluer(v.res) or 0, evaluer(v.tan) or 0, evaluer(v.bra) or 0, evaluer(v.brn) or 0
+    local divM = d <= 1 and d * cap or d
+    vider()
+    T("Répartition du bénéfice, RL à créer")
+    G("Méthode (modèle : 37.15) : a) bénéfice nécessaire = ce que la répartition distribue ou garde (dividendes + réserve légale + tantièmes " ..
+      "+ augmentation du bénéfice reporté) ; b) RL à constituer = bénéfice interne − bénéfice nécessaire, réparties poste par poste " ..
+      "(un poste prend le solde) ; c) BN publié = bénéfice nécessaire ; d) journal de répartition ; e) bilan publié après répartition.")
+    T("a) Bénéfice nécessaire (publié)")
+    local nec = divM + res + tan + (brn - bra)
+    GRILLE("Bénéfice nécessaire", {
+      {d <= 1 and ("Dividendes " .. pc(d) .. " × " .. f(cap)) or "Dividendes", f(divM)},
+      {"Augm. réserve légale", f(res)}, {"Tantièmes", f(tan)},
+      {"Augm. BR (" .. f(brn) .. " − " .. f(bra) .. ")", f(brn - bra)},
+      {"Bénéfice nécessaire", f(nec), gras = true, trait = true}})
+    COMMUN.calc("Bénéfice nécessaire", "dividendes + réserve légale + tantièmes + (BR nouveau − BR ancien)",
+      f(divM) .. " + " .. f(res) .. " + " .. f(tan) .. " + (" .. f(brn) .. " − " .. f(bra) .. ")", f(nec))
+    T("b) Réserves latentes à constituer")
+    local rl = bni - nec
+    COMMUN.calc("RL à constituer", "bénéfice interne − bénéfice nécessaire", f(bni) .. " − " .. f(nec), f(rl))
+    if rl < -1e-9 then A("Bénéfice interne inférieur au bénéfice nécessaire : il faudrait dissoudre " .. f(-rl) .. " de RL, pas en constituer.") end
+    local postes, somme, solde = {}, 0, nil
+    for i = 1, 6 do
+      local p = poste(v["r" .. i])
+      if p then
+        if p.v == nil and cle(p.brut):find("solde", 1, true) then solde = p; table.insert(postes, p)
+        elseif p.v then somme = somme + p.v; table.insert(postes, p) end
+      end
+    end
+    if solde then solde.v = rl - somme; solde.calc = f(rl) .. " − " .. f(somme)
+    elseif math.abs(somme - rl) > 1e-6 then A("Les RL saisies (" .. f(somme) .. ") ≠ RL à constituer (" .. f(rl) .. ") : ajouter un poste =solde.") end
+    local L = {}
+    for _, p in ipairs(postes) do
+      local calcul = p.calc or (COMMUN.estExpr(p.brut) and COMMUN.exprTexte(p.brut) or "")
+      X((journalRL(p.nom, "a", true)) .. " : " .. (calcul ~= "" and (calcul .. " = ") or "") .. f(p.v))
+      table.insert(L, {p.nom, f(p.v)})
+    end
+    table.insert(L, {"Total des RL", f(rl), gras = true, trait = true})
+    GRILLE("RL constituées", L, {entetes = {"Poste", "Montant"}})
+    T("c) Compte de résultat publié")
+    COMMUN.calc("BN publié", "BN interne − RL constituées", f(bni) .. " − " .. f(rl), f(bni - rl))
+    local ch = {}
+    for _, p in ipairs(postes) do local _, c = journalRL(p.nom, "a", true); table.insert(ch, c .. " +" .. f(p.v)) end
+    G("Au CR publié, chaque charge est augmentée de sa RL : " .. table.concat(ch, " ; ") .. ". Les produits ne changent pas.")
+    T("d) Journal : répartition du bénéfice")
+    GRILLE("Répartition", {
+      {"Résultat (BN publié)", f(nec), ""}, {"Bénéfice reporté (ancien)", f(bra), ""},
+      {"Dividendes", "", f(divM)}, {"Tantièmes", "", f(tan)}, {"Réserve légale s/bén.", "", f(res)}, {"Bénéfice reporté", "", f(brn)},
+      {"Total", f(nec + bra), f(divM + tan + res + brn), gras = true, trait = true}}, {entetes = {"Compte", "Débit", "Crédit"}})
+    local act, pas = lirePostes(v, "a", 12), lirePostes(v, "p", 8)
+    if #act > 0 and #pas > 0 then
+      T("e) Bilan publié après répartition")
+      for _, p in ipairs(postes) do
+        local l = trouverPoste(act, p.nom)
+        if l then l.v = l.v - p.v else A("RL « " .. p.nom .. " » : poste introuvable à l'actif.") end
+      end
+      local pas2 = {}
+      local resOk, brOk = false, false
+      for _, l in ipairs(pas) do
+        if contient(l.nom, {"report"}) then table.insert(pas2, {nom = l.nom, v = brn}); brOk = true
+        elseif contient(l.nom, {"reserve"}) then
+          if not resOk and (contient(l.nom, {"legale"}) or not contient(l.nom, {"latente"})) then
+            table.insert(pas2, {nom = l.nom, v = l.v + res}); resOk = true
+          else table.insert(pas2, {nom = l.nom, v = l.v}) end
+        elseif contient(l.nom, {"benefice", "resultat"}) then
+          -- bénéfice de l'exercice : entièrement réparti, il quitte le bilan
+        else table.insert(pas2, {nom = l.nom, v = l.v}) end
+      end
+      if not resOk and res ~= 0 then table.insert(pas2, {nom = "Réserve légale s/bénéfices", v = res, sec = 3}) end
+      if not brOk and brn ~= 0 then table.insert(pas2, {nom = "Bénéfice reporté", v = brn, sec = 3}) end
+      if divM ~= 0 then table.insert(pas2, {nom = "Dividendes", v = divM, sec = 1}) end
+      if tan ~= 0 then table.insert(pas2, {nom = "Tantièmes", v = tan, sec = 1}) end
+      local function ligne(l) return {l.nom, l.v} end
+      local ta = grilleCote("Actif", {"", "Publié"}, sectionsActif(act, ligne), 1)
+      local tp = grilleCote("Passif", {"", "Publié"}, sectionsPassif(pas2, ligne), 1)
+      if math.abs(ta[1] - tp[1]) > 1e-6 then A("Actif " .. f(ta[1]) .. " ≠ passif " .. f(tp[1]) .. " : vérifier le bilan interne saisi.") end
+      COMMUN.calc("Total publié", "total interne − RL constituées", f(ta[1] + rl) .. " − " .. f(rl), f(ta[1]))
+      G("Dividendes et tantièmes deviennent des dettes à court terme ; le bénéfice de l'exercice quitte le bilan.")
+    end
+    G("Défaut = 37.15 (prof : bénéfice nécessaire 400 ; RL 73 + 35 + 40 + 47 = 195 ; BN publié 400 ; bilan publié après répartition 4'865).")
+    montrer("Répartition du bénéfice")
+  end
+  SOLVEURS.repartition = repartition
+
   ---------------------------------------------------------------- menu
   local function viaLignes(titre, defaut, suite)
     return function() demander(titre, function(t) suite(t) end, defaut) end
   end
+  local function quest(titre, champs, fn) return function() COMMUN.questionnaire(titre, champs, function(_, brut) fn(brut) end) end end
+  local SM = COMMUN.sousMenu
+  -- forts / mots / si : index de la recherche (99_menu) ; radicaux sans accents (voir CONVENTIONS-MODULES.md)
   table.insert(MENUS_COMPTA, {ordre = 37, titre = "Réserves latentes, évaluation (37)", items = {
     {"Tableau des RL → BN, FP réels", function()
       demander("Comptes (Nom:VCi/VRi/VCf/VRf ou 7 valeurs, ? = inconnue, Stock@2/3)", function(l)
         formu("Bénéfice et FP publiés", CH_TAB, function(t) rlTableau(l, t) end)
       end, DEF_TAB)
-    end},
-    {"Résultat réel (un poste)", function() formu("Un poste", CH_UN, rlUnPoste) end},
-    {"Ducroire", function() formu("Ducroire", CH_DUC, ducroire) end},
-    {"Stock à une fraction (PRAMV)", function() formu("Stock à une fraction", CH_SF, stockFraction) end},
-    {"Stock externe / interne", function() formu("Stock ext./int.", CH_EI, stockExtInt) end},
-    {"Valeur max. du stock (960c)", viaLignes("Articles (Nom:qté/PRA/VVN)", DEF_SM, stockMax)},
-    {"Titres cotés / non cotés", viaLignes("Titres (Nom:nombre/achat/cours 31.12/c ou n)", DEF_TI, titres)},
-    {"Coût d'acquisition, amort.", function() formu("Coût d'acquisition", CH_CA, coutAcq) end},
-    {"Reprise fiscale (stock)", function() formu("Reprise fiscale", CH_RF, repriseStock) end},
-    {"Reprises fiscales (postes)", function()
-      demander("Postes (Nom:comptabilisé/admis)", function(l) formu("Bénéfice", CH_RP, function(t) reprises(l, t) end) end, DEF_RP)
-    end},
-    {"Plusieurs années", function()
-      demander("Postes (Nom:VC/VR/VC/VR… ; BN:bénéfices)", function(l) formu("Années", CH_PA, function(t) plusieursAnnees(l, t) end) end, DEF_PA)
-    end},
-    {"Fonds propres sur 3 ans", viaLignes("Années (An:VCi/VRi/RLi/VCf/VRf/RLf/Var)", DEF_FP, fondsPropres)},
-    {"Dissolution : écritures, CR", function() formu("Dissolution", CH_DI, dissolution) end},
-    {"Théorie, V/F, catégories", theorie},
+    end, forts = "tableau rl latente fp propres", mots = "reserve benefice reel fonds interne creer poste ducroire titre stock installation variation initial final",
+      si = "plusieurs postes, ou fonds propres réels"},
+    {"Bénéfice réel, 1 poste", function() formu("Un poste", CH_UN, rlUnPoste) end,
+      forts = "reel seul", mots = "resultat benefice net perte publie stock inventaire rl poste valeur",
+      si = "une seule RL (un poste), RL initiale donnée"},
+    SM("Ducroire, stock à une fraction", "Un poste : ducroire, stock", {
+      {"Ducroire", function() formu("Ducroire", CH_DUC, ducroire) end,
+        forts = "ducroire", mots = "creance client provision risque perte reel benefice surevalue",
+        si = "seul poste : le ducroire (x % des créances)"},
+      {"Stock à une fraction (PRAMV)", function() formu("Stock à une fraction", CH_SF, stockFraction) end,
+        forts = "fraction tiers 2/3 estime", mots = "stock sous evalue pramv reel benefice latente valeur",
+        si = "« stock évalué aux 2/3 de sa valeur »"},
+      {"Stock externe / interne (marge)", function() formu("Stock ext./int.", CH_EI, stockExtInt) end,
+        forts = "externe constituee dissoute", mots = "interne stock pramv marge brute latente variation montant expliquer difference",
+        si = "marge brute externe / interne, RL du stock"},
+    }),
+    {"Stock : valeur maximale", viaLignes("Articles (Nom:qté/PRA/VVN)", DEF_SM, stockMax),
+      forts = "maxim 960c venale", mots = "stock article marchandise valeur bilan figurer evaluation pra completer inventaire",
+      si = "stock article par article (PRA / valeur nette)"},
+    {"Titres cotés / non cotés", viaLignes("Titres (Nom:nombre/achat/cours 31.12/c ou n)", DEF_TI, titres),
+      forts = "titre cote action bourse", mots = "maxim valeur bilan figurer portefeuille cours",
+      si = "titres : cotés au cours, non cotés au coût"},
+    {"Prix max. 1re inscription, amort.", function() formu("Coût d'acquisition", CH_CA, coutAcq) end,
+      forts = "acquisition comptabilisation inscription prix premiere", mots = "maxim cout amortissement taux prudent terrain machine objet evaluer inscrire",
+      si = "1re comptabilisation d'un actif, taux d'amort."},
+    SM("Reprises fiscales", "Reprises fiscales", {
+      {"Reprise fiscale sur le stock", function() formu("Reprise fiscale", CH_RF, repriseStock) end,
+        forts = "fiscal fisc reprise", mots = "stock benefice admis admettre impot valeur reelle aurait",
+        si = "RL sur le stock (1/3 admis), bénéfice fiscal"},
+      {"Reprises fiscales (postes)", function()
+        demander("Postes (Nom:comptabilisé/admis)", function(l) formu("Bénéfice", CH_RP, function(t) reprises(l, t) end) end, DEF_RP)
+      end, forts = "fiscal fisc reprise minimal", mots = "poste provision amortissement benefice admis admissible",
+        si = "plusieurs postes : bénéfice fiscal minimal"},
+    }),
+    SM("Plusieurs années", "Plusieurs années", {
+      {"Bénéfice réel, plusieurs années", function()
+        demander("Postes (Nom:VC/VR/VC/VR… ; BN:bénéfices)", function(l) formu("Années", CH_PA, function(t) plusieursAnnees(l, t) end) end, DEF_PA)
+      end, forts = "annees exercices", mots = "plusieurs reel benefice latente",
+        si = "même entreprise, BN réel de chaque année"},
+      {"Fonds propres sur 3 ans", viaLignes("Années (An:VCi/VRi/RLi/VCf/VRf/RLf/Var)", DEF_FP, fondsPropres),
+        forts = "capital annees", mots = "fonds propres fp tableau completer trois ans augmentation",
+        si = "tableau des FP sur 3 ans, sans augm. de capital"},
+    }),
+    SM("Bilan interne, répartition", "Bilan interne, répartition", {
+      {"Bilan publié → bilan interne", quest("Bilan interne (37.5)", CH_BI, bilanInterne),
+        forts = "interne apurement", mots = "bilan publie externe valeur rl reserve latente actif passif total etablir dresser final",
+        si = "bilan publié + RL par poste → bilan interne"},
+      {"Répartition du bénéfice, RL à créer", quest("Répartition (37.15)", CH_REP, repartition),
+        forts = "repartition dividende tantieme necessaire", mots = "benefice publie journaliser reserve legale reporte constituer rl apres bilan conseil",
+        si = "BN publié imposé par la répartition → RL à créer"},
+      {"Dissolution : écritures, CR interne", function() formu("Dissolution", CH_DI, dissolution) end,
+        forts = "dissolution journal ecriture", mots = "journaliser interne externe cr compte resultat latente dissoudre",
+        si = "journaliser la dissolution ; CR externe / interne"},
+      {"Théorie, V/F, catégories", theorie,
+        forts = "vrai faux theorie categorie", mots = "affirmation reserve latente forcee arbitraire appreciation",
+        si = "affirmations sur les RL, catégories"},
+    }),
   }})
 end

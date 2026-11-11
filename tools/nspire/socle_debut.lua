@@ -367,7 +367,7 @@ local menuPrincipal
 local TITRE_APP = "Solveur"
 local function historiqueResultats()
   local it = {}
-  for i = #ARCH, 1, -1 do
+  for i = #ARCH, math.max(1, #ARCH - 8), -1 do   -- 9 derniers : un menu tient sur un ecran
     local d = ARCH[i]
     table.insert(it, {d.titre, function() vue = {haut = 0, doc = d.doc, titre = d.titre}; ecran = "vue"; inval() end})
   end
@@ -407,3 +407,90 @@ local function fmt(x, dec)
   return (neg and "−" or "") .. ent .. frac
 end
 
+
+------------------------------------------------------------------ recherche d'un solveur : index + moteur (ecran dans socle_fin)
+-- Chaque classeur remplit INDEX_SOLVEURS (format impose, partage par les classeurs compta et maths) :
+--   table.insert(INDEX_SOLVEURS, {titre = "Ducroire", chemin = "2·3", forts = {"ducroire"}, mots = {"creance", "client"},
+--     si = "un seul poste : le ducroire", ouvrir = function() … end})
+-- forts = mots propres au solveur (3 points par mot tape qui y colle) ; mots = mots partages, sigles (1 point).
+-- Ecrire des radicaux en minuscules sans accents : « maxim » couvre maximal et maximum, « graph » couvre graphiquement.
+-- Une chaine « a b c » est acceptee a la place d'une liste. Les mots du titre comptent comme des « mots ».
+-- La saisie est normalisee (minuscules, sans accents, mots vides retires) ; « si » = ligne grise sous le resultat (45 car. max).
+INDEX_SOLVEURS = {}
+CHERCHE = {}
+do
+  -- 2e octet UTF-8 (apres \195) modulo 32 -> lettre sans accent (A-grave … y-trema)
+  local ACC = {"a", "a", "a", "a", "a", "a", "ae", "c", "e", "e", "e", "e", "i", "i", "i", "i",
+    "d", "n", "o", "o", "o", "o", "o", " ", "o", "u", "u", "u", "u", "y", " ", "y"}
+  local STOP = {}
+  for m in ("a au aux avec c ce ces cet cette chf d dans de des du elle en est et il l la le les leur leurs n ne on ou par pas " ..
+    "pour qu que quel quelle qui s sa se ses si son sont sur un une y vous votre vos nous ci suivant suivante suivants suivantes " ..
+    "calculer calculez determiner determinez trouver trouvez donner donnez veuillez faut peut afin ainsi encore aide " ..
+    "chacun chacune tous toutes tout toute"):gmatch("%S+") do STOP[m] = true end
+  CHERCHE.STOP = STOP
+
+  local function normaliser(s)
+    s = tostring(s or "")
+    s = s:gsub("\197[\146\147]", "oe")
+    s = s:gsub("\195([\128-\191])", function(b) return ACC[b:byte() % 32 + 1] end)
+    s = s:gsub("[\192-\223][\128-\191]", " "):gsub("[\224-\239][\128-\191][\128-\191]", " ")
+    return (s:lower():gsub("[^a-z0-9/]+", " "))
+  end
+  CHERCHE.normaliser = normaliser
+
+  -- mots tapes : normalises, sans mots vides ni doublons
+  local function motsDe(s)
+    local t, vu = {}, {}
+    for m in normaliser(s):gmatch("%S+") do
+      if not STOP[m] and not m:match("^0+$") and not vu[m] then vu[m] = true; t[#t + 1] = m end
+    end
+    return t
+  end
+  CHERCHE.motsDe = motsDe
+
+  -- un mot tape t colle-t-il au mot d'index w ?
+  local function colle(t, w)
+    if #t <= 2 or #w <= 2 then return t == w end      -- sigles : egalite stricte (pm, rl, fp, ca)
+    return w:sub(1, #t) == t                          -- debut de mot : « duc » -> « ducroire »
+      or (#w >= 4 and t:sub(1, #w) == w)              -- mot flechi : « titres » -> « titre », « graphiquement » -> « graph »
+  end
+  CHERCHE.colle = colle
+
+  local function liste(x)
+    local out = {}
+    if type(x) ~= "table" then x = {x} end
+    for _, s in ipairs(x) do for m in normaliser(s):gmatch("%S+") do out[#out + 1] = m end end
+    return out
+  end
+  local function preparer(e)
+    if e._f then return end
+    e._f = liste(e.forts)
+    e._m = liste(e.mots)
+    for m in normaliser(e.titre):gmatch("%S+") do if not STOP[m] then e._m[#e._m + 1] = m end end
+  end
+
+  -- liste classee : {titre, chemin, si, ouvrir, score, nf (mots forts touches), rang (ordre de l'index)}
+  function CHERCHE.chercher(texte)
+    local tape, res = motsDe(texte), {}
+    if #tape == 0 then return res end
+    for i, e in ipairs(INDEX_SOLVEURS) do
+      preparer(e)
+      local nf, nm = 0, 0
+      for _, t in ipairs(tape) do
+        local fort = false
+        for _, w in ipairs(e._f) do if colle(t, w) then fort = true; break end end
+        if fort then nf = nf + 1
+        else for _, w in ipairs(e._m) do if colle(t, w) then nm = nm + 1; break end end end
+      end
+      if nf + nm > 0 then
+        res[#res + 1] = {titre = e.titre, chemin = e.chemin, si = e.si, ouvrir = e.ouvrir, score = 3 * nf + nm, nf = nf, rang = i}
+      end
+    end
+    table.sort(res, function(a, b)
+      if a.score ~= b.score then return a.score > b.score end
+      if a.nf ~= b.nf then return a.nf > b.nf end
+      return a.rang < b.rang
+    end)
+    return res
+  end
+end

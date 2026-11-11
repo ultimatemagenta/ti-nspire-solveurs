@@ -378,7 +378,70 @@ local function dessinerMenu(gc, w, h)
     gc:setColorRGB(120, 120, 120); gc:setFont("sansserif", "r", 9)
     gc:drawString(sel .. "/" .. #MENU.items, w - 34, h - 32, "top")
   end
-  pied(gc, w, h, "▲▼ choisir   enter : ouvrir   esc : retour")
+  pied(gc, w, h, "▲▼ choisir  enter : ouvrir  lettre : chercher  esc : retour")
+end
+
+-- ecran « Trouver un solveur » : une lettre tapee dans un menu l'ouvre ; liste filtree a chaque frappe (CHERCHE.chercher)
+local rech = {txt = "", res = {}, sel = 1}
+local function dessinerCherche(gc, w, h)
+  bandeau(gc, w, "Trouver un solveur")
+  local n = #rech.res
+  local cpt = (n > 0 and rech.sel or 0) .. " / " .. n
+  gc:setFont("sansserif", "r", 9); gc:setColorRGB(255, 255, 255)
+  gc:drawString(cpt, w - 6 - gc:getStringWidth(cpt), 4, "top")
+  local yb = 23
+  gc:setColorRGB(245, 245, 255); gc:fillRect(4, yb, w - 8, 22)
+  gc:setColorRGB(30, 70, 160); gc:drawRect(4, yb, w - 8, 22)
+  gc:setColorRGB(0, 0, 0); gc:setFont("sansserif", "r", 11)
+  gc:drawString(rech.txt, 8, yb + 3, "top")
+  local cx = 8 + gc:getStringWidth(rech.txt)
+  gc:drawLine(cx, yb + 3, cx, yb + 19)
+  local y = yb + 26
+  if n == 0 then
+    local l = {}
+    if #rech.txt < 3 then
+      l = {"Taper des mots de la consigne, sans accent :", "  reel  max stock  pm  graph  ratio liq", "  comparer  cash  flux  cout appro  fisc",
+        "Début de mot suffisant (3 lettres) ; sigles", "entiers : pm rl fp ca cr mb.", "Les chiffres 1-9 restent pour les menus."}
+    else
+      l = {"Aucun solveur pour « " .. rech.txt .. " ».", "Essayer un mot de la consigne, sans accent :", "  reel  max  seuil  graph  ratio  comparer",
+        "  stock  cash  flux  cout  repart  fisc  titre", "Sigles : pm rl fp can pramv roi roe cmp"}
+    end
+    for i, s in ipairs(l) do
+      gc:setColorRGB(i == 1 and 0 or 90, i == 1 and 0 or 90, i == 1 and 0 or 90); gc:setFont("sansserif", i == 1 and "b" or "r", 9)
+      gc:drawString(couperC(gc, s, w - 12), 6, y + 15 * (i - 1), "top")
+    end
+  else
+    local hl = 34
+    local nvis = math.max(1, math.floor((h - 16 - y) / hl))
+    local debut = math.max(1, rech.sel - nvis + 1)
+    for i = debut, math.min(n, debut + nvis - 1) do
+      local r = rech.res[i]
+      if i == rech.sel then gc:setColorRGB(200, 220, 255); gc:fillRect(2, y - 1, w - 4, hl - 2) end
+      gc:setColorRGB(0, 0, 0); gc:setFont("sansserif", i == rech.sel and "b" or "r", 10)
+      gc:drawString(couperC(gc, (r.chemin or "") .. "  " .. (r.titre or ""), w - 12), 6, y, "top")
+      gc:setColorRGB(110, 110, 110); gc:setFont("sansserif", "i", 9)
+      gc:drawString(couperC(gc, "si : " .. (r.si or ""), w - 26), 20, y + 16, "top")
+      y = y + hl
+    end
+  end
+  pied(gc, w, h, "▲▼ choisir   enter : ouvrir   esc : menu   clear")
+end
+
+local function relancerCherche()
+  rech.res = CHERCHE.chercher(rech.txt); rech.sel = 1; inval()
+end
+local function ouvrirCherche(ch)
+  rech = {txt = ch or "", res = {}, sel = 1, menu = MENU, msel = sel}
+  ecran = "cherche"; relancerCherche()
+end
+local function lancerCherche()
+  local r = rech.res[rech.sel]
+  if not r or not r.ouvrir then return end
+  MENU = rech.menu; sel = rech.msel; ecran = "menu"
+  local ok, err = pcall(r.ouvrir)
+  table.insert(PILE_MENUS, {menu = rech.menu, sel = rech.msel})   -- esc ramene au menu d'ou la recherche est partie
+  if not ok then vider(); T("Erreur"); A(tostring(err)); montrer("Erreur") end
+  inval()
 end
 
 local function couper(gc, s, larg)
@@ -516,12 +579,14 @@ function on.paint(gc)
   gc:setColorRGB(255, 255, 255); gc:fillRect(0, 0, w, h)
   if ecran == "menu" then dessinerMenu(gc, w, h)
   elseif ecran == "saisie" then dessinerSaisie(gc, w, h)
+  elseif ecran == "cherche" then dessinerCherche(gc, w, h)
   else dessinerVue(gc, w, h) end
 end
 
 ------------------------------------------------------------------ touches
 function on.arrowUp()
   if ecran == "menu" then sel = sel > 1 and sel - 1 or #MENU.items
+  elseif ecran == "cherche" then if #rech.res > 0 then rech.sel = rech.sel > 1 and rech.sel - 1 or #rech.res end
   elseif ecran == "saisie" then
     if saisie.h > 1 then saisie.h = saisie.h - 1; saisie.txt = HIST[saisie.h]; saisie.cur = #saisie.txt end
   else vue.haut = math.max(0, vue.haut - 16) end
@@ -530,6 +595,7 @@ end
 
 function on.arrowDown()
   if ecran == "menu" then sel = sel < #MENU.items and sel + 1 or 1
+  elseif ecran == "cherche" then if #rech.res > 0 then rech.sel = rech.sel < #rech.res and rech.sel + 1 or 1 end
   elseif ecran == "saisie" then
     if saisie.h < #HIST then saisie.h = saisie.h + 1; saisie.txt = HIST[saisie.h]; saisie.cur = #saisie.txt
     else saisie.h = #HIST + 1; saisie.txt = ""; saisie.cur = 0 end
@@ -558,6 +624,8 @@ function on.charIn(ch)
     local avant = MENU
     MENU.items[sel][2]()
     if MENU ~= avant then table.insert(PILE_MENUS, {menu = avant, sel = sel}) end
+  elseif ecran == "menu" and ch:match("^%a$") then ouvrirCherche(ch)       -- une lettre : recherche (les chiffres restent au menu)
+  elseif ecran == "cherche" and #rech.txt < 40 then rech.txt = rech.txt .. ch; relancerCherche()
   end
 end
 
@@ -565,11 +633,17 @@ function on.backspaceKey()
   if ecran == "saisie" and saisie.cur > 0 then
     saisie.txt = saisie.txt:sub(1, saisie.cur - 1) .. saisie.txt:sub(saisie.cur + 1)
     saisie.cur = saisie.cur - 1; inval()
+  elseif ecran == "cherche" and #rech.txt > 0 then
+    local t = rech.txt:sub(1, -2)
+    while #t > 0 and t:byte(-1) >= 128 and t:byte(-1) < 192 do t = t:sub(1, -2) end   -- pas de demi-caractere UTF-8
+    if #t > 0 and t:byte(-1) >= 192 then t = t:sub(1, -2) end
+    rech.txt = t; relancerCherche()
   end
 end
 
 function on.clearKey()
-  if ecran == "saisie" then saisie.txt = ""; saisie.cur = 0; inval() end
+  if ecran == "saisie" then saisie.txt = ""; saisie.cur = 0; inval()
+  elseif ecran == "cherche" then rech.txt = ""; relancerCherche() end
 end
 
 function on.enterKey()
@@ -584,11 +658,15 @@ function on.enterKey()
     local s = saisie.suite
     local ok, err = pcall(s, t)
     if not ok then vider(); T("Erreur"); A(tostring(err)); montrer("Erreur") end
+  elseif ecran == "cherche" then lancerCherche()
   else menuPrincipal() end
 end
 
 function on.escapeKey()
-  if ecran ~= "menu" or MENU.titre ~= TITRE_APP then
+  if ecran == "cherche" then MENU = rech.menu or MENU; sel = rech.msel or 1; ecran = "menu"; inval(); return end
+  -- depuis un resultat ou une saisie : retour au menu d'ou le solveur a ete lance (pas a son parent)
+  if ecran ~= "menu" and MENU then ecran = "menu"; inval(); return end
+  if MENU.titre ~= TITRE_APP then
     local p = table.remove(PILE_MENUS)
     if p then MENU = p.menu; sel = p.sel; ecran = "menu"; inval() else menuPrincipal() end
   end
@@ -604,5 +682,7 @@ API_TEST = {doc = function() return DOC end, hist = function() return HIST end,
   ecran = function() return ecran end, vue = function() return vue end, saisie = function() return saisie end, menu = function() return MENU, sel end,
   -- saisie simulee : txt = nil garde le texte pre-rempli (ENTER seul)
   entrer = function(txt) if txt then saisie.txt = txt; saisie.cur = #txt end; on.enterKey() end,
-  choisir = function(i) sel = i; on.enterKey() end}
+  choisir = function(i) sel = i; on.enterKey() end,
+  -- recherche : liste classee {titre, chemin, si, score, ouvrir} ; recherche() = etat de l'ecran (txt, res, sel)
+  chercher = function(txt) return CHERCHE.chercher(txt) end, recherche = function() return rech end}
 

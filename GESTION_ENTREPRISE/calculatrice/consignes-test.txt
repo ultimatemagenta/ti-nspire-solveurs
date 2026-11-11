@@ -1,0 +1,110 @@
+# Consignes réelles du prof -> solveur attendu (chemins des menus du 11.11.2026).
+# Format : saisie ; chemin attendu. Lancer :
+#   PYTHONIOENCODING=utf-8 python tools/nspire/test_pc.py GESTION_ENTREPRISE/calculatrice/compta.lua --cherche-tout GESTION_ENTREPRISE/calculatrice/consignes-test.txt
+# Échantillon C1-C34 de tools/nspire/ETUDE-CHOIX-SOLVEUR.md (§ 3.2), puis consignes des séries 37, 44, 51, 57 (section 5 et annexes).
+# Chaque consigne figure deux fois : saisie courte (ce qu'on tape sur la calculatrice), puis consigne entière.
+
+# --- saisies courtes (échantillon C1-C34)
+reel ; 2·2
+cr deg ; 3·1
+prama ; 3·1
+can ; 3·1
+rat liq ; 4·2
+max stock ; 2·4
+compar entreprises ; 4·3·1
+apprec liquidite ; 4·3·1
+pm comb ; 3·2
+combien ; 3·2
+tab rl ; 2·1
+benefice reel ; 2·1
+fp reel ; 2·1
+graph ; 3·7·1
+titr ; 2·5
+licence ; 3·8
+prix min ; 3·8
+pourc ; 3·8
+compte stock ; 6·1
+tab liq ; 5·1
+cash ind ; 5·2
+flux ; 5·3
+repart charg ; 6·2
+cout appro ; 6·3
+transfo ; 6·3
+prix revient distrib ; 6·3
+resultat mois ; 6·3
+fisc ; 2·7·1
+dissol ; 2·9·3
+prix max ; 2·6
+rentabiliser ; 3·3
+personnes transport ; 3·9·2
+rentabilite fonds propres ; 4·7
+cr ebit ; 4·5
+facteur ; 5·5
+incorp ; 6·5
+
+# --- consignes entières (échantillon C1-C34)
+Calculer le résultat net réel en 2026 ; 2·2
+Dresser le Compte de résultat à deux degrés en mettant en évidence la marge brute et le résultat net d'exploitation ; 3·1
+Calculer le PRAMA et le PRAMV ; 3·1
+Calculer le CAN ; 3·1
+En vous servant du bilan ci-après, veuillez calculer les ratios suivants pour l'année 2026 (liquidité 1, 2, 3, couverture 1, 2) ; 4·2
+Déterminer la valeur maximale à laquelle l'entreprise peut faire figurer son stock au bilan ; 2·4
+Veuillez calculer les ratios suivants pour les trois entreprises ; 4·3·1
+Veuillez apprécier le niveau de liquidités de ces trois entreprises ; 4·3·1
+Calculer combien de paquets il faut vendre pour atteindre le point mort quotidien ; 3·2
+Déterminer combien de paquets il faut vendre pour faire un bénéfice de 500 CHF par jour ; 3·2
+Veuillez créer un tableau de réserves latentes ; 2·1
+Déterminer le bénéfice réel ; 2·1
+Déterminer les fonds propres réels ; 2·1
+Montrer, graphiquement, le chiffre d'affaires à réaliser pour atteindre le point mort ; 3·7·1
+Déterminer la valeur maximale à laquelle tous ces titres peuvent figurer au bilan ; 2·5
+Déterminez le nombre de synthétiseurs qu'il faut vendre à 8'000 CHF pour obtenir un bénéfice net de 50'000 ; 3·8
+À quel prix, minimum, peut-on vendre la totalité d'une commande minimum ; 3·8
+Calculer le pourcentage d'augmentation du volume de ventes ; 3·8
+Établir le compte de stock du slime ; 6·1
+Établir le tableau des liquidités ; 5·1
+Présenter le calcul du cash-flow par la méthode indirecte ; 5·2
+Tableau de flux de trésorerie (méthode directe) ; 5·3
+Établir le tableau de répartition des charges indirectes ; 6·2
+Calculer le coût d'approvisionnement des matières premières achetées ; 6·3
+Déterminer le coût de transformation ; 6·3
+Calculer le prix de revient des paquets distribués ; 6·3
+Calculer le résultat du mois de février ; 6·3
+Calculer le montant de la reprise fiscale et le bénéfice fiscal en N1 ; 2·7·1
+Journaliser les écritures de dissolution des réserves latentes ; 2·9·3
+À quel prix maximum pouvez-vous évaluer cet objet lors de la première comptabilisation ; 2·6
+Déterminer le chiffre d'affaire à réaliser pour rentabiliser les fonds propres de CHF 2'400'000 ; 3·3
+Déterminer par un calcul combien de personnes doit transporter la compagnie ; 3·9·2
+Calculer la rentabilité des fonds propres ; 4·7
+Présenter le Compte de résultat en mettant en évidence les résultats suivants ; 4·5
+Calculer l'endettement effectif, le cash flow et le facteur d'endettement ; 5·5
+Déterminer le montant des charges incorporables du mois de décembre ; 6·5
+
+# --- autres consignes des séries (hors échantillon de l'étude)
+Calculer encore le degré d'autofinancement et trouver une explication ; 4·8·3·3
+Établir le bilan analytique, après répartition du bénéfice, de l'entreprise Xénon SA ; 4·4
+Calculer les chiffres clés suivants ; 4·9·1
+Analyse du cycle des liquidités et des taux de marge ; 4·6
+Calculer, à partir du graphique, le prix de vente unitaire ; 3·7·2
+Calculer, à partir du graphique, le chiffre d'affaires au point mort et la quantité de produits à vendre ; 3·7·2
+lire graph ; 3·7·2
+Journaliser la répartition du bénéfice ; 2·9·2
+Dresser le bilan publié après répartition du bénéfice ; 2·9·2
+Calculer le bénéfice net nécessaire ; 2·9·2
+repartition ; 2·9·2
+Établir le Compte de résultat et le bilan internes ; 2·9·1
+bilan interne ; 2·9·1
+Nommer les quatre droites ; 1·3·3
+Sur quelle base légale repose votre choix ; 1·6·5
+Calculer le chiffre d'affaires au point mort ; 3·3
+Calculer le nouveau point mort ; 3·5
+Présenter le Compte de résultat prévisionnel à deux degrés pour l'année prochaine ; 3·6
+Indiquer les effets des opérations suivantes sur le résultat (RN) ou les liquidités (LIQ) ; 5·4
+Calculer la rentabilité des capitaux investis ; 4·7
+L'entreprise estime son stock aux 2/3 de sa valeur réelle. Calculer le bénéfice net réel ; 2·3·2
+Calculer le bénéfice net fiscal minimal admissible pour 2012 ; 2·7·2
+Indiquer par le signe V ou F si les affirmations suivantes sur les réserves latentes sont vraies ou fausses ; 2·9·4
+Calculer les prix de revient de X et Y ainsi que le résultat par produit ; 6·4
+Comparer les différentes structures de financement de ces entreprises ; 4·3·2
+Déterminer le taux de marge brute en % du chiffre d'affaires net ; 3·4
+Expliquer la différence entre la marge brute externe et la marge brute interne ; 2·3·3
