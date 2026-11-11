@@ -44,7 +44,8 @@ chiffres 1-9 restent au menu. Le moteur lit la table globale `INDEX_SOLVEURS`, a
   (rang de chaque attendu, totaux « en tête » / « dans les 3 premiers », chemins de l'index rejoués dans les menus ; échoue si un attendu
   sort des 3 premiers). Une saisie isolée : `… test_pc.py …/compta.lua --cherche "max stock"` (top 5, frappe simulée, ENTER, esc).
 - API du socle (fonctions locales déjà visibles) :
-  - document : `vider()`, `T(titre)`, `X(texte)`, `G(texte gris)`, `A(alerte rouge)`, `R(avant, expr, apres)` (résultat vert ; pour du texte pur : `R("texte", "", "")`), `montrer(titreEcran)` ;
+  - document : `vider()`, `T(titre)` ou `T(titre, repere)` (repère gris en petit à droite du titre, ou dessous), `X(texte)` (`
+` = retour à la ligne dans le même paragraphe), `G(texte gris)`, `A(alerte rouge)`, `R(avant, expr, apres)` (résultat vert ; pour du texte pur : `R("texte", "", "")`), `montrer(titreEcran)` ;
   - **tableaux** : `GRILLE(titre, lignes, {entetes = {"", "N", "N-1"}})`, chaque ligne `{"libellé", "montant1", "montant2", gras = true, trait = true, fond = true, retrait = 1}` ;
   - montants : `fmt(x, dec)` → `12'500` (apostrophe suisse, signe −) ;
   - saisie : `demander(message, function(texte) … end, defaut, opts)` ; `opts` facultatif : `titre` (bandeau), `aide` (texte coupé en lignes

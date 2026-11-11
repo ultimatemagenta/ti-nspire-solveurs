@@ -295,7 +295,7 @@ end
 -- Un document = liste d'elements : {k="titre"|"txt"|"math"|"res"|"alerte"|"gris", s=..., avant=texte}
 local DOC = {}
 local function vider() DOC = {} end
-local function T(s) table.insert(DOC, {k = "titre", s = s}) end
+local function T(s, sous) table.insert(DOC, {k = "titre", s = s, sous = sous}) end   -- sous : repere gris en petit, a droite du titre (ou dessous)
 local function X(s) table.insert(DOC, {k = "txt", s = s}) end
 local function G(s) table.insert(DOC, {k = "gris", s = s}) end
 local function A(s) table.insert(DOC, {k = "alerte", s = s}) end

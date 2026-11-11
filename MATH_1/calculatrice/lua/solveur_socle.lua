@@ -295,7 +295,7 @@ end
 -- Un document = liste d'elements : {k="titre"|"txt"|"math"|"res"|"alerte"|"gris", s=..., avant=texte}
 local DOC = {}
 local function vider() DOC = {} end
-local function T(s) table.insert(DOC, {k = "titre", s = s}) end
+local function T(s, sous) table.insert(DOC, {k = "titre", s = s, sous = sous}) end   -- sous : repere gris en petit, a droite du titre (ou dessous)
 local function X(s) table.insert(DOC, {k = "txt", s = s}) end
 local function G(s) table.insert(DOC, {k = "gris", s = s}) end
 local function A(s) table.insert(DOC, {k = "alerte", s = s}) end
@@ -3739,8 +3739,19 @@ end
 local function hauteurElt(gc, e, w, dispo)
   if e.k == "txt" or e.k == "gris" or e.k == "alerte" then
     gc:setFont("sansserif", e.k == "gris" and "i" or (e.k == "alerte" and "b" or "r"), e.petit and 8 or 10)
-    e._l = couper(gc, e.s, w - 10)
+    e._l = {}
+    for par in (e.s .. "\n"):gmatch("(.-)\n") do          -- « \n » = retour a la ligne (sans l'espace d'un nouvel element)
+      for _, l in ipairs(couper(gc, par, w - 10)) do table.insert(e._l, l) end
+    end
     return 4 + (e.petit and 11 or 15) * #e._l
+  end
+  if e.k == "titre" and e.sous and e.sous ~= "" then   -- repere a droite du titre s'il tient, sinon en petit dessous
+    gc:setFont("sansserif", "b", 11); local wt = gc:getStringWidth(e.s)
+    gc:setFont("sansserif", "i", 8)
+    e._sl = nil
+    if 4 + wt + 8 + gc:getStringWidth(e.sous) <= w - 4 then e._sx = 4 + wt + 8; return 18 end
+    e._sx = 4; e._sl = couper(gc, e.sous, w - 10)
+    return 18 + 11 * #e._sl
   end
   if e.k == "tab" then return hauteurTab(e) + 2 end
   if e.k == "grille" and e.compact then return mesureCompacte(gc, e, w - 2, dispo) + 2 end
@@ -3774,6 +3785,11 @@ local function dessinerVue(gc, w, h)
       elseif e.k == "titre" then
         gc:setColorRGB(220, 230, 250); gc:fillRect(0, y, w, he)
         gc:setColorRGB(BLEU[1], BLEU[2], BLEU[3]); gc:setFont("sansserif", "b", 11); gc:drawString(e.s, 4, y + 2, "top")
+        if e.sous and e.sous ~= "" then
+          gc:setColorRGB(90, 90, 90); gc:setFont("sansserif", "i", 8)
+          if e._sl then for i, l in ipairs(e._sl) do gc:drawString(l, 4, y + 17 + 11 * (i - 1), "top") end
+          else gc:drawString(e.sous, e._sx or 4, y + 5, "top") end
+        end
       elseif e.k == "txt" or e.k == "gris" or e.k == "alerte" then
         if e.k == "txt" then gc:setColorRGB(0, 0, 0); gc:setFont("sansserif", "r", 10)
         elseif e.k == "gris" then gc:setColorRGB(110, 110, 110); gc:setFont("sansserif", "i", 10)

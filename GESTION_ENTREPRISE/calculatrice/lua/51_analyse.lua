@@ -770,261 +770,228 @@ function F.tronquer(s, n)
   return out
 end
 
-local NIV_LIQ = {[0] = "risque d'insolvabilité", "liquidité tendue", "liquidité juste suffisante", "aucun problème de paiement"}
+-- Document (retour utilisateur du 11.11.2026 : trop de défilement avant l'analyse) :
+--   1. titre court = titre du tableau compact des ratios (premier écran) ;
+--   2. analyse juste dessous, en blocs courts : Liquidité, Financement, (Rentabilité), Conclusion recopiable ;
+--   3. après la conclusion seulement : repères et détail des calculs.
+-- Marques : + valeur indicative atteinte, ≈ limite, − insuffisant, ++ excès (✓/✗ absents des polices du classeur).
 local NIV_LIQC = {[0] = "critique", "tendue", "juste", "bonne"}
-local NIV_FIN = {[0] = "structure de financement fragile", "structure de financement correcte", "structure de financement solide"}
 local NIV_FINC = {[0] = "fragile", "correcte", "solide"}
+-- libellés du tableau comparatif : en clair (pas de légende d'abréviations à lire)
+local CMP_LIB = {liq1 = "Liquidité 1", liq2 = "Liquidité 2", liq3 = "Liquidité 3", iai = "Intensité AI", ["end"] = "Endettement",
+  fp = "Financ. propre", couv1 = "Couverture 1", couv2 = "Couverture 2", roi = "ROI", roe = "ROE", tmb = "Marge brute",
+  tme = "Marge écon.", tmn = "Marge nette"}
 
--- appréciation de la liquidité (ratios en décimal) : phrases (tournures du corrigé 51.8) et niveau 0 à 3
-function F.cmpLiq(r)
+-- marque d'un ratio (décimal) par rapport à sa valeur indicative (51 p.11-13 ; endettement : corrigé 51.8)
+function F.marque(id, x)
+  if not x then return "" end
+  if id == "liq1" then return x > 0.3 and "++" or (x >= 0.2 and "+" or "−") end
+  if id == "liq2" then return x >= 1 and "+" or (x >= 0.9 and "≈" or "−") end
+  if id == "liq3" then return x >= 1.5 and "+" or (x >= 1 and "≈" or "−") end
+  if id == "end" then return x <= 0.7 and "+" or "−" end
+  if id == "fp" then return x >= 0.5 and "+" or (x >= 0.3 and "≈" or "−") end
+  if id == "couv1" then return x >= 0.6 and "+" or "−" end
+  if id == "couv2" then local c = r2(x); return c > 1 and "+" or (c == 1 and "≈" or "−") end
+  return ""
+end
+-- « L1 0.82 ++ · L2 0.95 ≈ · L3 2.27 + »
+function F.ligneRatios(r, ids, libs)
+  local t = {}
+  for k, id in ipairs(ids) do
+    if r[id] then table.insert(t, libs[k] .. " " .. d2(r[id]) .. " " .. F.marque(id, r[id])) end
+  end
+  return table.concat(t, " · ")
+end
+
+-- niveau de liquidité 0 à 3 (critique, tendue, juste, bonne)
+function F.nivLiq(r)
   local l1, l2, l3 = r.liq1, r.liq2, r.liq3
-  local p = {}
-  if l1 then
-    if l1 > 0.3 then table.insert(p, "liquidité 1 = " .. d2(l1) .. " > 0.3 : nettement en excédent de liquidités ; peut-être est-ce volontaire (achat d'une autre entreprise, investissements importants à venir), sinon c'est de l'argent qui ne rapporte rien")
-    elseif l1 >= 0.2 then table.insert(p, "liquidité 1 = " .. d2(l1) .. " : assez dans la norme (entre 0.2 et 0.3)")
-    else table.insert(p, "liquidité 1 = " .. d2(l1) .. " < 0.2 : en manque de liquidités immédiates") end
+  if l3 and l3 < 1 then return 0 end
+  if l2 and l2 < 0.9 then return 1 end
+  if (l2 and l2 >= 1) or (l3 and l3 >= 1.5) then return 3 end
+  if l2 or l3 then return 2 end
+  if l1 then return l1 >= 0.2 and 2 or 1 end
+end
+-- niveau de financement 0 à 2 (fragile, correcte, solide)
+function F.nivFin(r)
+  local e, c2 = r["end"], r.couv2
+  if not e and r.fp then e = 1 - r.fp end
+  if (e and e > 0.7) or (c2 and r2(c2) < 1) then return 0 end
+  if (e or c2) and (not e or e <= 0.5) and (not c2 or r2(c2) > 1) then return 2 end
+  if e or c2 then return 1 end
+end
+
+-- conséquence en une phrase courte (tournures des corrigés 51.8 et test 2025 ex. 3)
+function F.consLiq(r)
+  local l1, l2, l3 = r.liq1, r.liq2, r.liq3
+  if l3 and l3 < 1 then
+    return (l1 and l1 < 0.2 and "manque de liquidités ; " or "") .. "même en vendant tout le stock, ne peut pas payer ses dettes CT (FRN < 0)"
   end
+  local c1 = l1 and l1 > 0.3 and "trop de liquidités, qui ne rapportent rien" or nil
+  local c2
   if l2 then
-    if l2 >= 1 then table.insert(p, "liquidité 2 = " .. d2(l2) .. " ≥ 1 : liquidités et créances couvrent les dettes à court terme")
-    elseif l2 >= 0.9 then table.insert(p, "liquidité 2 = " .. d2(l2) .. ", juste sous 1 : liquidités et créances couvrent presque les dettes à court terme")
-    else table.insert(p, "liquidité 2 = " .. d2(l2) .. " < 1 : liquidités et créances ne suffisent pas à payer les dettes à court terme ; il faudra vendre du stock ou obtenir un crédit") end
+    if l2 >= 1 then c2 = "paie ses dettes CT sans vendre de stock"
+    elseif l2 >= 0.9 then c2 = "liquidités + créances couvrent presque les dettes CT"
+    else c2 = (l1 and l1 < 0.2 and "manque de liquidités ; " or "") .. "doit vendre du stock ou emprunter pour payer ses dettes CT" end
+  elseif l1 then c2 = l1 < 0.2 and "peu de liquidités immédiates" or nil end
+  local c3
+  if l2 and l2 < 1 and l3 then
+    if l3 >= 1.5 then c3 = "le stock couvre le reste"
+    elseif l3 - l2 < 0.1 then c3 = "peu de stock en réserve" end
   end
-  if l3 then
-    if l3 >= 1.5 then table.insert(p, "liquidité 3 = " .. d2(l3) .. " > 1.5 : avec les stocks, les dettes à court terme sont largement couvertes")
-    elseif l3 >= 1 then
-      if l2 and l3 - l2 < 0.1 then table.insert(p, "liquidité 3 = " .. d2(l3) .. ", sous 1.5 et à peine au-dessus de la liquidité 2 : presque pas de stock pour compléter")
-      else table.insert(p, "liquidité 3 = " .. d2(l3) .. ", entre 1 et 1.5 : les dettes à court terme ne sont couvertes que si le stock se vend") end
-    else table.insert(p, "liquidité 3 = " .. d2(l3) .. " < 1 : même en vendant tout son stock, l'entreprise ne peut pas payer ses dettes à court terme (FRN négatif)") end
-  end
-  local n
-  if l3 and l3 < 1 then n = 0
-  elseif l2 and l2 < 0.9 then n = 1
-  elseif (l2 and l2 >= 1) or (l3 and l3 >= 1.5) then n = 3
-  elseif l2 or l3 then n = 2
-  elseif l1 then n = l1 >= 0.2 and 2 or 1 end
-  return p, n
+  local t = {}
+  if c1 then table.insert(t, c1); table.insert(t, c3 or c2)
+  else table.insert(t, c2); table.insert(t, c3) end
+  local s = {}
+  for k = 1, 2 do if t[k] then table.insert(s, t[k]) end end
+  return table.concat(s, " ; ")
 end
-
--- appréciation de la structure de financement : phrases et niveau 0 à 2
-function F.cmpFin(r)
-  local e, f, i, c1, c2 = r["end"], r.fp, r.iai, r.couv1, r.couv2
-  local p = {}
+function F.consFin(r)
+  local e, c2, i = r["end"], r.couv2, r.iai
+  if not e and r.fp then e = 1 - r.fp end
+  local t = {}
   if e then
-    if e < 0.5 then table.insert(p, "degré d'endettement = " .. d2(e) .. " : endettement faible, l'entreprise se finance avant tout par des fonds propres ; les risques sont moindres, mais cela va compromettre la rentabilité des fonds propres")
-    elseif e <= 0.7 then table.insert(p, "degré d'endettement = " .. d2(e) .. " : un financement qui correspond assez à la norme (51.8 : 0.56)")
-    else table.insert(p, "degré d'endettement = " .. d2(e) .. " : l'entreprise est surendettée, très dépendante de ses créanciers et vulnérable en cas de perte ; ses charges financières sont élevées") end
+    if e < 0.5 then table.insert(t, "surtout des fonds propres : peu de risque, mais rentabilité des FP réduite")
+    elseif e <= 0.7 then table.insert(t, "endettement dans la norme")
+    else table.insert(t, "surendettée, vulnérable en cas de perte") end
   end
-  if f then
-    local s = "financement propre = " .. d2(f) .. (f >= 0.5 and " ≥ 0.5 (idéal bancaire) : indépendance envers les bailleurs de fonds"
-      or (f >= 0.3 and ", dans la moyenne (environ 0.3) mais sous l'idéal bancaire de 0.5" or " : faible, peu de réserve pour absorber des pertes"))
-    if e and math.abs(e + f - 1) > 0.02 then s = s .. " (attention : endettement + financement propre ≠ 1, vérifier la saisie)" end
-    table.insert(p, s)
+  if c2 then
+    local c = r2(c2)
+    if c < 1 then table.insert(t, "règle d'or non respectée : des AI financés par des dettes CT")
+    elseif c == 1 then table.insert(t, "règle d'or tout juste (FRN nul)")
+    elseif i and i < 0.3 and e and e > 0.7 then table.insert(t, "règle d'or grâce à peu d'AI (" .. d2(i) .. ")")
+    elseif not e or e >= 0.5 then table.insert(t, "règle d'or respectée") end
   end
-  if i then
-    if i >= 0.6 then table.insert(p, "intensité des AI = " .. d2(i) .. " : beaucoup d'immobilisations, donc des charges fixes importantes (amortissements, entretien)")
-    elseif i < 0.3 then table.insert(p, "intensité des AI = " .. d2(i) .. " : peu d'immobilisations (commerce, services), peu de charges fixes")
-    else table.insert(p, "intensité des AI = " .. d2(i) .. " : immobilisations moyennes") end
-  end
-  if c1 then
-    if c1 >= 1 then table.insert(p, "couverture 1 = " .. d2(c1) .. " ≥ 1 : les immobilisations sont entièrement payées par les fonds propres")
-    elseif c1 > 0.8 then table.insert(p, "couverture 1 = " .. d2(c1) .. " > 0.8 : les immobilisations sont largement payées par les fonds propres")
-    elseif c1 >= 0.6 then table.insert(p, "couverture 1 = " .. d2(c1) .. " : dans la norme (0.6 à 0.8), immobilisations financées surtout par les fonds propres")
-    else table.insert(p, "couverture 1 = " .. d2(c1) .. " < 0.6 : les immobilisations dépendent des capitaux étrangers") end
-  end
-  local n
-  if (e and e > 0.7) or (c2 and r2(c2) < 1) then n = 0
-  elseif (e or c2) and (not e or e <= 0.5) and (not c2 or r2(c2) > 1) then n = 2
-  elseif e or c2 then n = 1 end
-  return p, n
+  if #t < 2 and i and i >= 0.6 then table.insert(t, "beaucoup d'immobilisations (AI " .. d2(i) .. ") : charges fixes élevées") end
+  return table.concat(t, " ; ")
 end
 
--- règle d'or (couverture 2) ; nil si non saisie
-function F.cmpOr(r)
-  local c2 = r.couv2
-  if not c2 then return nil end
-  local s
-  if r2(c2) > 1 then s = "couverture 2 = " .. d2(c2) .. " > 1 : règle d'or respectée, les immobilisations sont financées par des capitaux permanents (fonds propres + CE à long terme)"
-  elseif r2(c2) == 1 then s = "couverture 2 = " .. d2(c2) .. " : tout juste à la limite de la règle d'or ; les capitaux permanents couvrent exactement les immobilisations, sans aucune marge (FRN nul)"
-  else s = "couverture 2 = " .. d2(c2) .. " < 1 : règle d'or non respectée ; une partie des immobilisations est financée par des dettes à court terme, à rembourser avant que ces investissements ne rapportent" end
-  if r2(c2) > 1 and r.iai and r.iai < 0.3 and r["end"] and r["end"] > 0.7 then
-    s = s .. " ; mais elle n'est élevée que parce que les immobilisations sont faibles (intensité des AI = " .. d2(r.iai) .. "), alors que l'entreprise est très endettée"
-  end
-  return s
-end
-
--- analyse complète d'un groupe d'entreprises : ents = {{nom = "…", r = {liq1 = 0.82, …}}, …}
--- tableau comparatif compact (ratios renseignés seulement), à placer juste sous le titre : pos = rang dans le document
-function F.cmpTableau(ents, lignesSup, pos)
+-- tableau comparatif compact (ratios renseignés seulement) ; son titre est le titre du document (premier écran)
+function F.cmpTableau(ents, lignesSup, titre)
   local ent = {""}
   for _, e in ipairs(ents) do table.insert(ent, e.nom) end   -- la grille compacte tronque les noms à la largeur des colonnes
-  local l, ids = {}, {}
+  local l = {}
   for _, id in ipairs(CMP_IDS) do
     local present = false
     for _, e in ipairs(ents) do if e.r[id] then present = true end end
     if present then
-      local ligne = {ABR[id]}
+      local ligne = {CMP_LIB[id]}
       for _, e in ipairs(ents) do local x = e.r[id]; ligne[#ligne + 1] = x and (CMP_PCT[id] and p2(x * 100) or d2(x)) or "—" end
-      table.insert(l, ligne); table.insert(ids, id)
+      table.insert(l, ligne)
     end
   end
   for _, x in ipairs(lignesSup or {}) do table.insert(l, x) end
-  local leg = F.legende(ids)
-  if lignesSup and #lignesSup > 0 then leg = leg .. " · FRN = fonds de roulement net (AC − CE ct)" end
-  GRILLE("", l, {entetes = ent, compact = true, pos = pos, legende = leg .. ". Rentabilités et marges en %, autres ratios en décimal."})
+  GRILLE(titre, l, {entetes = ent, compact = true})
 end
 
+-- ordre « A > B > C » (niveau décroissant, puis ratio départage)
+function F.ordre(ents, cle, ratio, croissant)
+  local t = {}
+  for _, e in ipairs(ents) do if e[cle] then table.insert(t, e) end end
+  table.sort(t, function(a, b)
+    if a[cle] ~= b[cle] then return a[cle] > b[cle] end
+    local x, y = a.r[ratio] or 0, b.r[ratio] or 0
+    if croissant then return x < y end
+    return x > y
+  end)
+  local s = {}
+  for _, e in ipairs(t) do table.insert(s, e.nom) end
+  return table.concat(s, " > "), #t
+end
+
+-- phrase de conclusion d'une entreprise : constat chiffré, valeur indicative, conséquence (style du corrigé, test 2025 ex. 3)
+function F.phraseConcl(e, qual)
+  local r = e.r
+  local l1, l2, l3, en, c2 = r.liq1, r.liq2, r.liq3, r["end"], r.couv2
+  local pl
+  if l3 and l3 < 1 then pl = "liquidité 3 de " .. d2(l3) .. " (< 1, FRN négatif)"
+  elseif l2 and l2 < 1 and l3 and l3 >= 1.5 then pl = "liquidité 3 de " .. d2(l3) .. " (≥ 1.5)"
+  elseif l2 then pl = "liquidité 2 de " .. d2(l2) .. (l2 >= 1 and " (≥ 1)" or " (< 1)")
+  elseif l3 then pl = "liquidité 3 de " .. d2(l3) .. (l3 >= 1.5 and " (≥ 1.5)" or " (< 1.5)")
+  elseif l1 then pl = "liquidité 1 de " .. d2(l1) end
+  local pf
+  if en and en > 0.7 then pf = "endettement de " .. d2(en) .. " (surendettée)"
+  elseif c2 and r2(c2) <= 1 then pf = "couverture 2 de " .. d2(c2) .. (r2(c2) == 1 and " (règle d'or tout juste)" or " (règle d'or non respectée)")
+  elseif en then pf = "endettement " .. (en < 0.5 and "faible" or "dans la norme") .. " de " .. d2(en)
+  elseif c2 then pf = "règle d'or respectée (couverture 2 = " .. d2(c2) .. ")" end
+  local cons
+  if e.nl == 0 then cons = "elle risque l'insolvabilité"
+  elseif e.nl and e.nl <= 1 and e.nf == 0 then cons = "elle doit vendre du stock ou emprunter"
+  elseif e.nl and e.nl <= 1 then cons = "elle doit encaisser ses créances, vendre du stock ou emprunter"
+  elseif e.nf == 0 then cons = "elle est vulnérable en cas de perte"
+  elseif l1 and l1 > 0.3 then cons = "elle pourrait placer son excédent de liquidités" end
+  local c = {}
+  if pl then table.insert(c, pl) end
+  if pf then table.insert(c, pf) end
+  local s = e.nom .. (qual and (" " .. qual) or "") .. " : " .. (#c > 0 and table.concat(c, ", ") or "ratios incomplets")
+  if cons then s = s .. " ; " .. cons end
+  return s .. "."
+end
+
+-- analyse sous le tableau : ents = {{nom = "…", r = {liq1 = 0.82, …}}, …}
 function F.cmpRendu(ents)
   local n = #ents
-  G("Valeurs indicatives (51 p.11-13) : liquidité 1 de 0.2 à 0.3 ; liquidité 2 ≥ 1 ; liquidité 3 de 1.5 à 2 ; couverture 1 de 0.6 à 0.8 ; couverture 2 ≥ 1 (règle d'or). Endettement, repères des corrigés 51.8 et 51.10 : 0.40 faible, 0.56 dans la norme, 0.82 surendetté.")
+  -- Liquidité
+  T("Liquidité", "L1 0.2-0.3 · L2 ≥ 1 · L3 1.5-2")
+  for _, e in ipairs(ents) do
+    e.nl = F.nivLiq(e.r)
+    local lr = F.ligneRatios(e.r, {"liq1", "liq2", "liq3"}, {"L1", "L2", "L3"})
+    if lr ~= "" then X(e.nom .. " : " .. lr .. "\n→ " .. NIV_LIQC[e.nl] .. " : " .. F.consLiq(e.r) .. ".")
+    else G(e.nom .. " : aucun ratio de liquidité.") end
+  end
+  if n >= 2 then local s, k = F.ordre(ents, "nl", "liq2"); if k >= 2 then X("Comparaison : " .. s) end end
 
-  local function classer(cle, ratio, desc)
+  -- Financement
+  T("Financement", "endett. ≤ 0.7 · couv. 2 ≥ 1")
+  for _, e in ipairs(ents) do
+    e.nf = F.nivFin(e.r)
+    local ids, libs = {"end", "couv2"}, {"endett.", "couv. 2"}
+    if not e.r["end"] then ids, libs = {"fp", "couv2"}, {"fin. propre", "couv. 2"} end
+    if not e.r.couv2 then table.insert(ids, "couv1"); table.insert(libs, "couv. 1") end
+    local lr = F.ligneRatios(e.r, ids, libs)
+    if lr ~= "" and e.nf then X(e.nom .. " : " .. lr .. "\n→ " .. NIV_FINC[e.nf] .. " : " .. F.consFin(e.r) .. ".")
+    else G(e.nom .. " : aucun ratio de financement.") end
+  end
+  if n >= 2 then local s, k = F.ordre(ents, "nf", "end", true); if k >= 2 then X("Comparaison : " .. s) end end
+
+  -- Rentabilité (facultatif)
+  local lignes, b = {}, nil
+  for _, e in ipairs(ents) do
     local t = {}
-    for _, e in ipairs(ents) do if e[cle] then table.insert(t, e) end end
-    table.sort(t, function(a, b)
-      if a[cle] ~= b[cle] then return a[cle] > b[cle] end
-      local x, y = a.r[ratio] or 0, b.r[ratio] or 0
-      if desc then return x > y end
-      return x < y
-    end)
-    return t
+    for _, id in ipairs({"roe", "roi", "tmn"}) do if e.r[id] then table.insert(t, CMP_LIB[id] .. " " .. p2(e.r[id] * 100)) end end
+    if #t > 0 then table.insert(lignes, e.nom .. " : " .. table.concat(t, " · ")) end
+    if e.r.roe and (not b or e.r.roe > b.r.roe) then b = e end
   end
-  local function extreme(id, plusGrand)
-    local best
-    for _, e in ipairs(ents) do
-      local x = e.r[id]
-      if x and (not best or (plusGrand and x > best.r[id]) or (not plusGrand and x < best.r[id])) then best = e end
-    end
-    return best
+  if #lignes > 0 then
+    T("Rentabilité")
+    if b and #lignes >= 2 then table.insert(lignes, "Meilleur ROE : " .. b.nom .. " (" .. p2(b.r.roe * 100) .. ")") end
+    X(table.concat(lignes, "\n"))
   end
 
-  -- a) liquidité
-  T("a) Niveau de liquidité")
-  G("Pour chaque entreprise : ratio, valeur indicative, conséquence (tournures du corrigé 51.8). Barème 2025 (hypothèse, BAREME.md §3) : 3 pts, soit 1 pt par entreprise.")
-  for _, e in ipairs(ents) do
-    local p, nl = F.cmpLiq(e.r)
-    e.nl = nl
-    if #p > 0 then X(e.nom .. " : " .. table.concat(p, " ; ") .. ". → " .. NIV_LIQ[nl] .. ".")
-    else G(e.nom .. " : aucun ratio de liquidité saisi.") end
-  end
-  local tl = classer("nl", "liq2", true)
-  if #tl >= 2 then
-    local a, z = tl[1], tl[#tl]
-    local s = a.nom .. " a la meilleure liquidité (" .. NIV_LIQ[a.nl] .. "), " .. z.nom .. " la plus faible (" .. NIV_LIQ[z.nl] .. ")"
-    for k = 2, #tl - 1 do s = s .. " ; " .. tl[k].nom .. " se situe entre les deux (" .. NIV_LIQ[tl[k].nl] .. ")" end
-    local hi, lo = extreme("liq2", true), extreme("liq2", false)
-    if hi and lo and hi ~= lo then
-      s = s .. ". La liquidité 2, le ratio le plus important, va de " .. d2(lo.r.liq2) .. " (" .. lo.nom .. ") à " .. d2(hi.r.liq2) .. " (" .. hi.nom .. ")"
-    end
-    local exc = {}
-    for _, e in ipairs(ents) do if e.r.liq1 and e.r.liq1 > 0.3 then table.insert(exc, e.nom) end end
-    if #exc > 0 then s = s .. ". " .. table.concat(exc, " et ") .. (#exc > 1 and " gardent" or " garde") .. " beaucoup de liquidités qui ne rapportent rien" end
-    X("Comparaison : " .. s .. ".")
-  end
-
-  -- b) structure de financement
-  T("b) Structure de financement")
-  G("Endettement, financement propre, poids des immobilisations, couverture 1 (barème 2025, hypothèse : 3 pts, 1 pt par entreprise).")
-  for _, e in ipairs(ents) do
-    local p, nf = F.cmpFin(e.r)
-    e.nf = nf
-    if #p > 0 then X(e.nom .. " : " .. table.concat(p, " ; ") .. ". → " .. (nf and NIV_FIN[nf] or "à compléter avec la règle d'or") .. ".")
-    else G(e.nom .. " : aucun ratio de financement saisi.") end
-  end
-  local tf = classer("nf", "end", false)
-  if #tf >= 2 then
-    local function det(e) return NIV_FIN[e.nf] .. (e.r["end"] and (", endettement " .. d2(e.r["end"])) or "") end
-    local a, z = tf[1], tf[#tf]
-    local s = a.nom .. " a la structure la plus sûre (" .. det(a) .. "), " .. z.nom .. " la plus risquée (" .. det(z) .. ")"
-    for k = 2, #tf - 1 do s = s .. " ; " .. tf[k].nom .. " se situe entre les deux (" .. det(tf[k]) .. ")" end
-    local im = extreme("iai", true)
-    if im and im.r.iai >= 0.5 then s = s .. ". " .. im.nom .. " a le plus d'immobilisations (intensité " .. d2(im.r.iai) .. "), donc le plus de charges fixes" end
-    X("Comparaison : " .. s .. ". Moins d'endettement = moins de risque, mais une rentabilité des fonds propres moins favorisée (51.8).")
-  end
-
-  -- c) règle d'or
-  local ok, lim, non = {}, {}, {}
-  local avecOr = false
-  for _, e in ipairs(ents) do if e.r.couv2 then avecOr = true end end
-  if avecOr then
-    T("c) Règle d'or (couverture 2)")
-    for _, e in ipairs(ents) do
-      local s = F.cmpOr(e.r)
-      if s then
-        X(e.nom .. " : " .. s .. ".")
-        local c = r2(e.r.couv2)
-        table.insert(c > 1 and ok or (c == 1 and lim or non), e.nom)
-      end
-    end
-    if n >= 2 then
-      local t = {}
-      if #ok > 0 then table.insert(t, "respectée par " .. table.concat(ok, ", ")) end
-      if #lim > 0 then table.insert(t, "tout juste par " .. table.concat(lim, ", ")) end
-      if #non > 0 then table.insert(t, "non respectée par " .. table.concat(non, ", ")) end
-      X("Bilan : règle d'or " .. table.concat(t, " ; ") .. ".")
-    end
-  end
-
-  -- d) rentabilité (facultatif)
-  local avecRen = false
-  for _, e in ipairs(ents) do for id in pairs(CMP_PCT) do if e.r[id] then avecRen = true end end end
-  if avecRen then
-    T("d) Rentabilité et marges")
-    for _, e in ipairs(ents) do
-      local t = {}
-      for _, id in ipairs({"roe", "roi", "tmb", "tme", "tmn"}) do if e.r[id] then table.insert(t, COURT[id] .. " = " .. p2(e.r[id] * 100)) end end
-      if #t > 0 then
-        local s = e.nom .. " : " .. table.concat(t, ", ")
-        if e.r.roe and e.r.roi then
-          s = s .. (e.r.roe > e.r.roi and " ; ROE > ROI : l'endettement profite aux actionnaires (effet de levier positif, hors test)"
-            or " ; ROE ≤ ROI : l'endettement ne profite pas aux actionnaires")
-        end
-        X(s .. ".")
-      end
-    end
-    local b, nroe = extreme("roe", true), 0
-    for _, e in ipairs(ents) do if e.r.roe then nroe = nroe + 1 end end
-    if b and nroe >= 2 then X("Comparaison : " .. b.nom .. " rémunère le mieux ses actionnaires (ROE = " .. p2(b.r.roe * 100) .. ") ; à rapprocher de son endettement (le levier augmente le ROE mais aussi le risque).") end
-  end
-
-  -- classement et conclusion
+  -- Conclusion : 2-3 phrases recopiables (la plus solide, la plus fragile, celles du milieu)
   for _, e in ipairs(ents) do
     e.score = (e.nl or 0) + 1.5 * (e.nf or 0) + 0.1 * (e.r.liq2 or 0) - 0.1 * (e.r["end"] or 0) + (e.r.roe or 0)
   end
   local cl = {}
   for _, e in ipairs(ents) do table.insert(cl, e) end
-  table.sort(cl, function(a, b) return a.score > b.score end)
-  if n >= 2 then
-    T("Classement")
-    local lc = {}
-    for k, e in ipairs(cl) do
-      table.insert(lc, {k .. ". " .. e.nom, e.nl and NIV_LIQC[e.nl] or "—", e.nf and NIV_FINC[e.nf] or "—", gras = k == 1})
-    end
-    GRILLE("Du plus solide au plus fragile", lc, {entetes = {"", "Liquidité", "Financement"}})
-    G("Classement de la calculatrice : niveau de liquidité + 1.5 × niveau de financement (le financement pèse plus : il engage l'entreprise à long terme). Repère personnel, pas une règle du prof.")
-  end
+  table.sort(cl, function(a, c) return a.score > c.score end)
   T("Conclusion")
-  for k, e in ipairs(cl) do
-    local liq = e.nl and NIV_LIQ[e.nl] or "liquidité non évaluée"
-    local fin = e.nf and NIV_FIN[e.nf] or "financement non évalué"
-    local det = {}
-    if e.r["end"] then table.insert(det, "endettement " .. d2(e.r["end"])) end
-    if e.r.couv2 then
-      local c = r2(e.r.couv2)
-      table.insert(det, c > 1 and "règle d'or respectée" or (c == 1 and "règle d'or tout juste respectée" or "règle d'or non respectée"))
+  local ph = {}
+  if n == 1 then table.insert(ph, F.phraseConcl(cl[1]))
+  else
+    table.insert(ph, F.phraseConcl(cl[1], "est la plus solide"))
+    if n == 3 then table.insert(ph, F.phraseConcl(cl[2], "est entre les deux"))
+    elseif n > 3 then
+      local mil = {}
+      for k = 2, n - 1 do table.insert(mil, cl[k].nom) end
+      local der = table.remove(mil)
+      table.insert(ph, table.concat(mil, ", ") .. " et " .. der .. " se situent entre les deux.")
     end
-    local s
-    if n == 1 then s = e.nom .. " : " .. liq .. " et " .. fin
-    elseif k == 1 then s = e.nom .. " présente la situation la plus solide : " .. liq .. " et " .. fin
-    elseif k == n then s = e.nom .. " est la plus fragile : " .. liq .. " et " .. fin
-    else s = e.nom .. " se situe entre les deux : " .. liq .. " et " .. fin end
-    if #det > 0 then s = s .. " (" .. table.concat(det, ", ") .. ")" end
-    local c = {}
-    if e.nl and e.nl <= 1 then table.insert(c, "encaisser ses créances, vendre du stock ou obtenir un crédit pour payer ses dettes à court terme") end
-    if e.nf == 0 then table.insert(c, "renforcer ses fonds propres ou réduire son endettement") end
-    if e.r.liq1 and e.r.liq1 > 0.3 then table.insert(c, "placer ou investir son excédent de liquidités") end
-    if #c > 0 then s = s .. " ; elle devrait " .. table.concat(c, " et ") end
-    X(s .. ".")
+    table.insert(ph, F.phraseConcl(cl[n], "est la plus fragile"))
   end
+  X(table.concat(ph, "\n"))
+  local leg = "+ valeur indicative atteinte · ≈ limite · − insuffisant · ++ excès. Endettement (51.8) : 0.40 faible, 0.56 norme, 0.82 surendetté."
+  table.insert(DOC, {k = "gris", s = leg, petit = true})
 end
 
 -- a) à partir des ratios déjà calculés : « Nom: liq1=0.82;liq2=0.95;… / Nom: … » (1 à 5 entreprises)
@@ -1046,11 +1013,11 @@ function F.comparerRatios(brut)
     table.insert(ents, {nom = (nom:gsub("%s+$", "")), r = r})
   end
   vider()
-  T("Comparer " .. #ents .. " entreprise" .. (#ents > 1 and "s" or "") .. " (ratios)")
-  F.cmpTableau(ents)   -- tableau comparatif en tête : tout le premier écran, détails dessous
-  G("Méthode (modèle : test 2025 ex. 5 et 51.8) : tableau des ratios en décimal comme le corrigé du prof, puis, par entreprise et par question, une à deux phrases (constat chiffré, valeur indicative, hypothèse ou conséquence) et une comparaison. Barème 2025 : 3 pts de calculs, 6 pts de commentaires (liquidité, structure de financement).")
-  if defaut then G("Par défaut : test 2025 ex. 5, ratios du corrigé du prof (Bouvier, Corgi, Husky) ; financement propre et couverture 1 calculés depuis les bilans de l'énoncé (non demandés en 2025).") end
+  F.cmpTableau(ents, nil, "Comparer " .. #ents .. " entreprise" .. (#ents > 1 and "s" or "") .. " (ratios)")
   F.cmpRendu(ents)
+  table.insert(DOC, {k = "gris", petit = true, s = "Formules : L1 = liq. ÷ CE ct · L2 = (liq. + créances) ÷ CE ct · L3 = AC ÷ CE ct · "
+    .. "intensité AI = AI ÷ total · endett. = CE ÷ total · couv. 1 = FP ÷ AI · couv. 2 = (FP + CE lt) ÷ AI."
+    .. (defaut and " Par défaut : test 2025 ex. 5 (corrigé du prof ; fin. propre et couv. 1 tirés des bilans)." or "")})
   montrer("Comparer (ratios)")
 end
 
@@ -1071,11 +1038,33 @@ function F.comparer(brut)
     v.nom = (nom:gsub("%s+$", ""))
     table.insert(vs, v)
   end
+  -- calculs d'abord (sans rien écrire) : le document commence par le tableau et l'analyse
+  local ids = {"liq1", "liq2", "liq3", "iai", "end", "fp", "couv1", "couv2"}
+  local ents, lf = {}, {"FRN (AC − CE ct)"}
+  for _, v in ipairs(vs) do
+    v._app = {}
+    local r = {}
+    for _, id in ipairs(ids) do
+      local nn, den, app = RID[id].calc(v)
+      if F.ok(nn, den) and den ~= 0 then
+        v._r[id] = nn * 100 / den; r[id] = nn / den
+        v._app[id] = app:gsub(" × 100", "") .. " = " .. d2(nn / den)
+      end
+    end
+    for _, id in ipairs(ids) do if r[id] then r[id] = r2(r[id]) end end   -- analyse sur les valeurs arrondies, comme la copie
+    table.insert(ents, {nom = v.nom, r = r})
+    lf[#lf + 1] = F.ok(v.ac, v.ct) and m(v.ac - v.ct) or "—"
+  end
   vider()
-  T("Comparer " .. #vs .. " bilan" .. (#vs > 1 and "s" or ""))
-  G("Méthode (modèle : test 2025 ex. 5 et 51.8) : pour chaque bilan, ratio = numérateur ÷ dénominateur, en décimal comme le corrigé du prof ; puis une à deux phrases par entreprise et par question (constat chiffré, norme, hypothèse ou conséquence) et une comparaison. Barème 2025 : 3 pts de calculs, 6 pts de commentaires.")
-  if defaut then G("Par défaut : test 2025 ex. 5 (bilans de Bouvier, Corgi, Husky).") end
-  -- rappel des bilans structurés
+  F.cmpTableau(ents, {lf}, "Comparer " .. #vs .. " bilan" .. (#vs > 1 and "s" or ""))
+  for _, v in ipairs(vs) do if F.ok(v.ce, v.fp) then v.pas = v.ce + v.fp end end
+  for _, v in ipairs(vs) do
+    if F.ok(v.tot, v.pas) and math.abs(v.tot - v.pas) > 0.5 then A(v.nom .. " : bilan déséquilibré (actif " .. m(v.tot) .. " ≠ passif " .. m(v.pas) .. ").") end
+  end
+  F.cmpRendu(ents)
+
+  -- détail des calculs, après la conclusion
+  T("Détail des calculs")
   local larg = math.max(4, math.floor(170 / math.max(#vs, 1) / 6))
   local ent = {""}
   for _, v in ipairs(vs) do table.insert(ent, F.tronquer(v.nom, larg)) end
@@ -1085,7 +1074,6 @@ function F.comparer(brut)
     for kk, vv in pairs(o or {}) do l[kk] = vv end
     return l
   end
-  for _, v in ipairs(vs) do if F.ok(v.ce, v.fp) then v.pas = v.ce + v.fp end end
   GRILLE("Bilans structurés", {
     rang("Liquidités", "liq", {retrait = 1}), rang("Créances", "cre", {retrait = 1}), rang("Stocks", "sto", {retrait = 1}),
     rang("Actifs circulants", "ac", {gras = true}), rang("Actifs immobilisés", "ai", {gras = true}),
@@ -1093,36 +1081,14 @@ function F.comparer(brut)
     rang("CE à court terme", "ct", {retrait = 1}), rang("CE à long terme", "lt", {retrait = 1}),
     rang("Capitaux propres", "fp", {gras = true}), rang("Total du passif", "pas", {gras = true, trait = true, fond = true}),
   }, {entetes = ent})
-  for _, v in ipairs(vs) do
-    if F.ok(v.tot, v.pas) and math.abs(v.tot - v.pas) > 0.5 then A(v.nom .. " : bilan déséquilibré (actif " .. m(v.tot) .. " ≠ passif " .. m(v.pas) .. ").") end
-  end
-  -- calculs : formule (liste Profil M, en décimal) puis application
-  T("Calcul des ratios")
-  local ids = {"liq1", "liq2", "liq3", "iai", "end", "fp", "couv1", "couv2"}
-  local ents = {}
   for _, id in ipairs(ids) do
     local d = RID[id]
     X(d.nom .. " = " .. d.formule:gsub(" × 100", ""))
-    for _, v in ipairs(vs) do
-      local nn, den, app = d.calc(v)
-      if F.ok(nn, den) and den ~= 0 then
-        R("  " .. v.nom .. " : ", "", app:gsub(" × 100", "") .. " = " .. d2(nn / den))
-        v._r[id] = nn * 100 / den
-      end
-    end
-  end
-  local lf = {"FRN"}
-  for _, v in ipairs(vs) do
-    table.insert(ents, {nom = v.nom, r = {liq1 = v._r.liq1 and v._r.liq1 / 100, liq2 = v._r.liq2 and v._r.liq2 / 100,
-      liq3 = v._r.liq3 and v._r.liq3 / 100, iai = v._r.iai and v._r.iai / 100, ["end"] = v._r["end"] and v._r["end"] / 100,
-      fp = v._r.fp and v._r.fp / 100, couv1 = v._r.couv1 and v._r.couv1 / 100, couv2 = v._r.couv2 and v._r.couv2 / 100}})
-    lf[#lf + 1] = F.ok(v.ac, v.ct) and m(v.ac - v.ct) or "—"
+    for _, v in ipairs(vs) do if v._app[id] then R("  " .. v.nom .. " : ", "", v._app[id]) end end
   end
   X("FRN = actifs circulants − CE à court terme")
   for _, v in ipairs(vs) do if F.ok(v.ac, v.ct) then R("  " .. v.nom .. " : ", "", m(v.ac) .. " − " .. m(v.ct) .. " = " .. m(v.ac - v.ct)) end end
-  F.cmpTableau(ents, {lf}, 2)   -- inséré juste sous le titre (premier écran), les calculs restent dessous
-  F.cmpRendu(ents)
-  if defaut then G("Corrigé du prof (test 2025 ex. 5) : Bouvier 0.82 · 0.95 · 2.27 · 0.5 · 0.4 · 1.56 ; Corgi 0.26 · 0.97 · 1 · 0.62 · 0.58 · 1.00 ; Husky 0.17 · 0.75 · 1.27 · 0.24 · 0.82 · 1.67.") end
+  if defaut then G("Par défaut : test 2025 ex. 5. Corrigé du prof : Bouvier 0.82 · 0.95 · 2.27 · 0.5 · 0.4 · 1.56 ; Corgi 0.26 · 0.97 · 1 · 0.62 · 0.58 · 1.00 ; Husky 0.17 · 0.75 · 1.27 · 0.24 · 0.82 · 1.67.") end
   montrer("Comparer des bilans")
 end
 

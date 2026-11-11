@@ -23,7 +23,8 @@ Recherche d'un solveur (index INDEX_SOLVEURS, moteur CHERCHE du socle) :
   - fichier : une consigne par ligne « saisie ; chemin attendu » (# = commentaire) ; imprime le rang de chaque attendu,
     les totaux « en tete » et « dans les 3 premiers », et verifie que chaque chemin de l'index mene a son libelle de menu.
     Code de sortie 1 si un attendu sort des 3 premiers ou si un chemin d'index est faux.
-Apres chaque document : controle du premier tableau (« TABLEAU OK » / « TABLEAU DEBORDE » pour une grille compacte,
+Apres chaque document (ligne de commande) : hauteur cumulee « ECRANS » (positions de dessinerVue, ecrans de 176 px, fin de chaque
+section titre -> titre suivant, notes grises en petit non comptees) et controle du premier tableau (« TABLEAU OK » / « TABLEAU DEBORDE » pour une grille compacte,
 c.-a-d. un tableau comparatif qui doit tenir sur le premier ecran sans defilement).
 """
 import sys
@@ -47,7 +48,12 @@ GC = setmetatable({}, gcm)
 """
 
 
+MESURER = False   # ligne « ECRANS » : seulement en ligne de commande (les bancs qui importent ce module comparent des sorties)
+
+
 def main():
+    global MESURER
+    MESURER = True
     if len(sys.argv) < 2:
         print(__doc__); sys.exit(1)
     L = lupa.LuaRuntime(unpack_returned_tuples=True)
@@ -191,7 +197,7 @@ def imprimer(L):
         e = doc[i]
         k = e.k
         if k == "titre":
-            print("\n== " + str(e.s))
+            print("\n== " + str(e.s) + (("   [" + str(e.sous) + "]") if e.sous else ""))
         elif k in ("txt", "gris", "alerte"):
             print(("! " if k == "alerte" else "") + str(e.s))
         elif k in ("math", "res"):
@@ -209,6 +215,29 @@ def imprimer(L):
     L.execute("on.paint(GC)")
     print("\n(dessin simule : OK)")
     verifierTableau(L)
+    if MESURER:
+        mesurerEcrans(L)
+
+
+def mesurerEcrans(L):
+    """Hauteur cumulee du document (positions de dessinerVue, vue en haut) et nombre d'ecrans de 176 px
+    (212 - bandeau 20 - pied 16) pour atteindre la fin de chaque section (titre -> titre suivant)."""
+    api = L.globals().API_TEST
+    doc = api.doc()
+    vis = int(api.vue().visible or 176)
+    secs, total = [], 0
+    for i in range(1, len(doc) + 1):
+        e = doc[i]
+        y = int(e._y or 0) - 23              # decalage depuis le haut du document
+        total = y + int(e._h or 0) + 2
+        if e.k == "titre":
+            secs.append([str(e.s), y, y])
+        elif secs and not e.petit:           # fin du contenu de la section (les notes grises en petit ne comptent pas)
+            secs[-1][2] = total
+    ecr = lambda px: max(1, -(-px // vis))
+    print("ECRANS : document " + str(total) + " px = " + str(ecr(total)) + " ecran(s) de " + str(vis) + " px")
+    for s, a, b in secs:
+        print("   %-32s %4d -> %4d px  (fin a l'ecran %d)" % (s[:32], a, b, ecr(b)))
 
 
 def verifierTableau(L):
