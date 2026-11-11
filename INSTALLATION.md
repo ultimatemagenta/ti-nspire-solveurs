@@ -19,6 +19,7 @@ Les fichiers prêts à installer sont dans le dossier [`classeurs/`](classeurs/)
 |---|---|
 | `compta.tns` | Comptabilité : aide-mémoire, réserves latentes (37), compte de résultat et seuil de rentabilité (44), analyse de bilan et ratios (51), trésorerie (57), coûts (59), finance (hors cours) |
 | `solveur.tns` | Maths 1 : résolution automatique, analyse de fonction, factorisation, vecteurs, problèmes A et B, calcul littéral |
+| `solveur2.tns` | Maths 1, nouvelle version : mêmes solveurs, menus réorganisés, recherche « Trouver un solveur » (taper une lettre dans un menu), aire d'une figure sur quadrillage, min/max d'un trinôme |
 | `maths1.tns` | Maths 1, première version en Python (facultatif) |
 
 Pour chaque fichier :
@@ -58,7 +59,7 @@ Répète la méthode choisie pour `solveur.tns` et `maths1.tns`.
 ### Touches
 | Écran | Touches |
 |---|---|
-| Menu | **▲▼** choisir, **`enter`** ouvrir, chiffre **1-9** accès direct, **`esc`** menu précédent |
+| Menu | **▲▼** choisir, **`enter`** ouvrir, chiffre **1-9** accès direct, **`esc`** menu précédent, **une lettre** ouvre « Trouver un solveur » (taper quelques lettres de la consigne : « ducr », « point mort », « asympt »), **▲▼** puis **`enter`** |
 | Saisie guidée | La question rappelle la composition du poste (« Liquidités = caisse + poste + banque … »). La valeur proposée vient d'un exercice corrigé. **`enter`** garde la valeur, on peut taper une somme (`35+30`), **`<`** revient à la question précédente, **`!`** valide tout le reste par défaut, **`esc`** annule. |
 | Saisie libre (maths) | **◄►** déplacer le curseur, **▲▼** rappeler les saisies précédentes, **`enter`** valider |
 | Résultat | **▲▼** défiler, **◄►** page par page, **`enter`** ou **`esc`** retour au menu |
