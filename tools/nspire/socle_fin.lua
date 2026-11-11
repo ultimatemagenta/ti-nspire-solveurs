@@ -252,6 +252,93 @@ local function dessinerGrille(gc, e, x0, y0, w)
   gc:setColorRGB(150, 150, 150); gc:drawRect(x0, y0 + 16, w - 2, y - y0 - 16)
 end
 
+-- grille compacte (GRILLE(..., {compact = true})) : tout le tableau sur un ecran.
+-- dispo = hauteur libre depuis le haut de la grille jusqu'au pied quand le document est en haut ;
+-- si elle ne suffit pas, la grille se dimensionne pour un ecran entier (tableau suivant d'une serie).
+local function texteC(s) return (tostring(s or ""):gsub(" %%", "%%"):gsub("−", "-")) end
+local function couperC(gc, s, larg)
+  while gc:getStringWidth(s) > larg and #s > 1 do
+    s = s:sub(1, -2)
+    while #s > 1 and s:byte(-1) >= 128 and s:byte(-1) < 192 do s = s:sub(1, -2) end   -- pas de demi-caractere UTF-8
+    if #s > 0 and s:byte(-1) >= 192 then s = s:sub(1, -2) end
+  end
+  return s
+end
+local function mesureCompacte(gc, e, w, dispo)
+  local rows = {}
+  if e.opts.entetes then table.insert(rows, {c = e.opts.entetes, ent = true}) end
+  for _, l in ipairs(e.lignes) do table.insert(rows, {c = l, l = l}) end
+  local ncol = 0
+  for _, r in ipairs(rows) do ncol = math.max(ncol, #r.c - 1) end
+  local ht = (e.titre and e.titre ~= "") and 12 or 0
+  local nr = math.max(#rows, 1)
+  if not dispo or dispo < ht + nr * 9 + 2 then dispo = 212 - 36 - 2 end
+  local rh = math.max(9, math.min(13, math.floor((dispo - ht - 2) / nr)))
+  local f0 = rh >= 12 and 9 or (rh >= 10 and 8 or 7)
+  local L
+  for f = f0, 7, -1 do
+    for avecEnt = 1, 0, -1 do       -- d'abord en-tetes entiers, sinon en-tetes tronques a la largeur des valeurs
+      local wl, wc = 0, {}
+      for j = 1, ncol do wc[j] = 0 end
+      for _, r in ipairs(rows) do
+        gc:setFont("sansserif", (r.ent or (r.l and r.l.gras)) and "b" or "r", f)
+        wl = math.max(wl, gc:getStringWidth(texteC(r.c[1])) + 5 + (r.l and r.l.retrait or 0) * 6)
+        if not r.ent or avecEnt == 1 then
+          for j = 1, ncol do wc[j] = math.max(wc[j], gc:getStringWidth(texteC(r.c[j + 1])) + 5) end
+        end
+      end
+      local tot = wl
+      for j = 1, ncol do wc[j] = math.max(wc[j], 14); tot = tot + wc[j] end
+      L = {f = f, rh = rh, wl = wl, wc = wc, tot = tot, ht = ht, ncol = ncol, nr = #rows}
+      if tot <= w - 2 then break end
+    end
+    if L.tot <= w - 2 then break end
+  end
+  L.deborde = L.tot > w - 2
+  local reste = (w - 2) - L.tot
+  if reste > 0 then          -- place en trop : un peu pour les libelles, le reste reparti entre les colonnes
+    local pl = ncol > 0 and math.floor(reste * 0.25) or reste
+    L.wl = L.wl + pl
+    for j = 1, ncol do L.wc[j] = L.wc[j] + math.floor((reste - pl) / ncol) end
+  elseif reste < 0 then L.wl = math.max(20, L.wl + reste) end   -- trop large : libelles tronques
+  L.h = ht + L.nr * L.rh + 2
+  e._L = L
+  return L.h
+end
+
+local function dessinerCompacte(gc, e, x0, y0, w)
+  local L = e._L
+  local y = y0
+  if L.ht > 0 then
+    gc:setColorRGB(30, 70, 160); gc:setFont("sansserif", "b", 9); gc:drawString(e.titre, x0 + 2, y - 1, "top")
+    y = y + L.ht
+  end
+  local ytab = y
+  local dy = math.max(0, math.floor((L.rh - L.f - 4) / 2))
+  local function rang(c, l, ent)
+    if ent then gc:setColorRGB(220, 230, 250); gc:fillRect(x0, y, w - 2, L.rh)
+    elseif l.fond then gc:setColorRGB(235, 240, 250); gc:fillRect(x0, y, w - 2, L.rh) end
+    gc:setColorRGB(0, 0, 0)
+    gc:setFont("sansserif", (ent or l.gras) and "b" or "r", L.f)
+    local ret = (l and l.retrait or 0) * 6
+    gc:drawString(couperC(gc, texteC(c[1]), L.wl - 4 - ret), x0 + 2 + ret, y + dy, "top")
+    local xr = x0 + L.wl
+    for j = 1, L.ncol do
+      xr = xr + L.wc[j]
+      local s = couperC(gc, texteC(c[j + 1]), L.wc[j] - 3)
+      gc:drawString(s, xr - 3 - gc:getStringWidth(s), y + dy, "top")
+    end
+    if l and l.trait then gc:setColorRGB(0, 0, 0); gc:drawLine(x0 + L.wl, y, x0 + w - 3, y) end
+    y = y + L.rh
+    gc:setColorRGB(225, 225, 225); gc:drawLine(x0, y, x0 + w - 3, y)
+  end
+  if e.opts.entetes then rang(e.opts.entetes, nil, true) end
+  for _, l in ipairs(e.lignes) do rang(l, l, false) end
+  gc:setColorRGB(150, 150, 150)
+  gc:drawRect(x0, ytab, w - 2, y - ytab)
+  gc:drawLine(x0 + L.wl, ytab, x0 + L.wl, y)
+end
+
 ------------------------------------------------------------------ dessin
 local BLEU = {30, 70, 160}
 
@@ -349,13 +436,14 @@ local function dessinerSaisie(gc, w, h)
   pied(gc, w, h, saisie.pied or "◄► curseur  ▲▼ historique  enter : ok  esc : annuler")
 end
 
-local function hauteurElt(gc, e, w)
+local function hauteurElt(gc, e, w, dispo)
   if e.k == "txt" or e.k == "gris" or e.k == "alerte" then
-    gc:setFont("sansserif", e.k == "gris" and "i" or (e.k == "alerte" and "b" or "r"), 10)
+    gc:setFont("sansserif", e.k == "gris" and "i" or (e.k == "alerte" and "b" or "r"), e.petit and 8 or 10)
     e._l = couper(gc, e.s, w - 10)
-    return 4 + 15 * #e._l
+    return 4 + (e.petit and 11 or 15) * #e._l
   end
   if e.k == "tab" then return hauteurTab(e) + 2 end
+  if e.k == "grille" and e.compact then return mesureCompacte(gc, e, w - 2, dispo) + 2 end
   if e.k == "grille" then return hauteurGrille(e) + 2 end
   if e.k == "graphe" then return HGRAPHE + 14 end
   if e.k == "courbes" then return HGRAPHE + 14 end
@@ -374,9 +462,12 @@ local function dessinerVue(gc, w, h)
   local y = 22 - vue.haut
   local total = 0
   for _, e in ipairs(vue.doc) do
-    local he = hauteurElt(gc, e, w)
+    -- place libre sous l'element quand le document est en haut (independant du defilement) : grilles compactes
+    local he = hauteurElt(gc, e, w, (h - 16) - (22 + total + 1))
+    e._y, e._h = 22 + total + 1, he - 2   -- position dans le document en haut de vue (banc de test)
     if y + he > 20 and y < h - 16 then
-      if e.k == "grille" then dessinerGrille(gc, e, 2, y + 1, w - 2)
+      if e.k == "grille" and e.compact then dessinerCompacte(gc, e, 2, y + 1, w - 2)
+      elseif e.k == "grille" then dessinerGrille(gc, e, 2, y + 1, w - 2)
       elseif e.k == "tab" then dessinerTab(gc, e, 2, y + 1, w - 2)
       elseif e.k == "graphe" then dessinerGraphe(gc, e, 2, y + 1, w - 2)
       elseif e.k == "courbes" then dessinerCourbes(gc, e, 2, y + 1, w - 2)
@@ -387,7 +478,8 @@ local function dessinerVue(gc, w, h)
         if e.k == "txt" then gc:setColorRGB(0, 0, 0); gc:setFont("sansserif", "r", 10)
         elseif e.k == "gris" then gc:setColorRGB(110, 110, 110); gc:setFont("sansserif", "i", 10)
         else gc:setColorRGB(200, 0, 0); gc:setFont("sansserif", "b", 10) end
-        for i, l in ipairs(e._l or {e.s}) do gc:drawString(l, 4, y + 2 + 15 * (i - 1), "top") end
+        if e.petit then gc:setFont("sansserif", "i", 8) end
+        for i, l in ipairs(e._l or {e.s}) do gc:drawString(l, 4, y + 2 + (e.petit and 11 or 15) * (i - 1), "top") end
       else
         local res = e.k == "res"
         if res then gc:setColorRGB(0, 120, 0) else gc:setColorRGB(0, 0, 0) end
@@ -500,7 +592,7 @@ function on.save() return {hist = HIST} end
 function on.restore(t) if type(t) == "table" and t.hist then HIST = t.hist end end
 
 API_TEST = {doc = function() return DOC end, hist = function() return HIST end,
-  ecran = function() return ecran end, saisie = function() return saisie end, menu = function() return MENU, sel end,
+  ecran = function() return ecran end, vue = function() return vue end, saisie = function() return saisie end, menu = function() return MENU, sel end,
   -- saisie simulee : txt = nil garde le texte pre-rempli (ENTER seul)
   entrer = function(txt) if txt then saisie.txt = txt; saisie.cur = #txt end; on.enterKey() end,
   choisir = function(i) sel = i; on.enterKey() end}

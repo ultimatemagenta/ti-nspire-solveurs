@@ -419,6 +419,28 @@ local COURT = {liq1 = "Liquidité 1", liq2 = "Liquidité 2", liq3 = "Liquidité 
   rotfrs = "Rotation fournisseurs", durfrs = "Durée crédits obtenus", rotsto = "Rotation stocks", dursto = "Durée stocks",
   rinv = "Ratio d'investissement", mcf = "Marge de cash flow", fend = "Facteur d'endettement", roi = "ROI", roe = "ROE",
   rota = "Rotation actif (HT)", levier = "Effet levier (HT)"}
+-- abréviations des tableaux comparatifs compacts (premier écran) ; légende : F.legende(ids)
+local ABR = {liq1 = "Liq. 1", liq2 = "Liq. 2", liq3 = "Liq. 3", iac = "Int. AC", iai = "Int. AI", ["end"] = "Endett.", fp = "Fin. propre",
+  auto = "Autofin.", couv1 = "Couv. 1", couv2 = "Couv. 2", tmb = "TMB", tme = "TME", tmn = "TMN", rotcli = "Rot. cli.",
+  durcli = "Durée cli.", rotfrs = "Rot. fourn.", durfrs = "Durée fourn.", rotsto = "Rot. stocks", dursto = "Durée stocks",
+  rinv = "Invest.", mcf = "Marge CF", fend = "Fact. endett.", roi = "ROI", roe = "ROE", rota = "Rot. actif HT", levier = "Levier HT"}
+-- {ids concernés, texte de légende} dans l'ordre d'affichage
+local LEG = {{{"liq1", "liq2", "liq3"}, "Liq. = liquidité"}, {{"iac", "iai"}, "Int. AC / AI = intensité des actifs circulants / immobilisés"},
+  {{"end"}, "Endett. = degré d'endettement"}, {{"fp"}, "Fin. propre = degré de financement propre"}, {{"auto"}, "Autofin. = degré d'autofinancement"},
+  {{"couv1", "couv2"}, "Couv. = degré de couverture des AI"}, {{"tmb", "tme", "tmn"}, "TMB, TME, TMN = taux de marge brute, économique, nette"},
+  {{"rotcli", "durcli", "rotfrs", "durfrs", "rotsto", "dursto", "rota"}, "Rot. = rotation, cli. = clients, fourn. = fournisseurs (durée en jours)"},
+  {{"rinv"}, "Invest. = ratio d'investissement"}, {{"mcf"}, "Marge CF = marge de cash flow"}, {{"fend"}, "Fact. endett. = facteur d'endettement"},
+  {{"roi", "roe"}, "ROI, ROE = rentabilité des capitaux investis, des fonds propres"}, {{"rota", "levier"}, "HT = hors test"}}
+function F.legende(ids)
+  local pres, t = {}, {}
+  for _, id in ipairs(ids) do pres[id] = true end
+  for _, g in ipairs(LEG) do
+    local ok = false
+    for _, id in ipairs(g[1]) do if pres[id] then ok = true end end
+    if ok then table.insert(t, g[2]) end
+  end
+  return table.concat(t, " · ")
+end
 
 -- durées : 360 ÷ rotation arrondie à 2 décimales (le prof divise par la rotation arrondie : 51.24, 360 ÷ 5.19 = 69.36)
 for _, d in ipairs(RAT) do
@@ -654,22 +676,20 @@ function F.analyse(brut)
     X("Commentaire : " .. (v.cf - v.inv >= 0 and "free cash flow positif : marge de manœuvre pour rembourser des dettes ou verser un dividende."
       or "free cash flow négatif : aucune marge de manœuvre pour rembourser des dettes ou verser un dividende exceptionnel (57.22)."))
   end
-  -- tableau de synthèse
-  local l = {}
+  F.conclusion(v)
+  -- tableau des 26 ratios en tête du document (juste sous le titre) : 2 tableaux compacts de 13 lignes, chacun sur un écran
+  local l, ids = {}, {}
   local v1
   if deux then
     v1 = F.deriver({liq = v.liq1, cre = v.cre1, sto = v.sto1, ai = v.ai1, ct = v.ct1, lt = v.lt1, fp = v.fp1, cc = v.cc1})
   end
   for i, d in ipairs(RAT) do
-    local ligne = {COURT[d.id], F.court(d, v._r[d.id])}
+    local ligne = {ABR[d.id], F.court(d, v._r[d.id])}
     if deux then ligne[3] = (i <= 10) and F.court(d, F.val(v1, d.id)) or "" end
-    table.insert(l, ligne)
+    table.insert(l, ligne); table.insert(ids, d.id)
   end
-  T("Synthèse")
-  G("HT = hors test (décomposition du ROI, effet de levier).")
-  GRILLE("Les 26 ratios", l, {entetes = deux and {"", "N", "N-1"} or {"", "N"}})
-  G("Liste des ratios 2018 Profil M · normes : 51 p.11-13 (PDF) · cash flow : 57 p.62")
-  F.conclusion(v)
+  GRILLE("Les 26 ratios", l, {entetes = deux and {"", "N", "N-1"} or {"", "N"}, compact = true, pos = 2,
+    legende = F.legende(ids) .. ". N-1 : ratios du bilan seulement. Détail (formule, application, commentaire) plus bas. Liste des ratios 2018 Profil M · normes : 51 p.11-13 (PDF) · cash flow : 57 p.62."})
   montrer("Analyse complète")
 end
 
@@ -833,23 +853,28 @@ function F.cmpOr(r)
 end
 
 -- analyse complète d'un groupe d'entreprises : ents = {{nom = "…", r = {liq1 = 0.82, …}}, …}
-function F.cmpRendu(ents, lignesSup)
-  local n = #ents
-  local larg = math.max(4, math.floor(170 / math.max(n, 1) / 6))
+-- tableau comparatif compact (ratios renseignés seulement), à placer juste sous le titre : pos = rang dans le document
+function F.cmpTableau(ents, lignesSup, pos)
   local ent = {""}
-  for _, e in ipairs(ents) do table.insert(ent, F.tronquer(e.nom, larg)) end
-  local l = {}
+  for _, e in ipairs(ents) do table.insert(ent, e.nom) end   -- la grille compacte tronque les noms à la largeur des colonnes
+  local l, ids = {}, {}
   for _, id in ipairs(CMP_IDS) do
     local present = false
     for _, e in ipairs(ents) do if e.r[id] then present = true end end
     if present then
-      local ligne = {COURT[id]}
+      local ligne = {ABR[id]}
       for _, e in ipairs(ents) do local x = e.r[id]; ligne[#ligne + 1] = x and (CMP_PCT[id] and p2(x * 100) or d2(x)) or "—" end
-      table.insert(l, ligne)
+      table.insert(l, ligne); table.insert(ids, id)
     end
   end
   for _, x in ipairs(lignesSup or {}) do table.insert(l, x) end
-  GRILLE("Tableau comparatif", l, {entetes = ent})
+  local leg = F.legende(ids)
+  if lignesSup and #lignesSup > 0 then leg = leg .. " · FRN = fonds de roulement net (AC − CE ct)" end
+  GRILLE("", l, {entetes = ent, compact = true, pos = pos, legende = leg .. ". Rentabilités et marges en %, autres ratios en décimal."})
+end
+
+function F.cmpRendu(ents)
+  local n = #ents
   G("Valeurs indicatives (51 p.11-13) : liquidité 1 de 0.2 à 0.3 ; liquidité 2 ≥ 1 ; liquidité 3 de 1.5 à 2 ; couverture 1 de 0.6 à 0.8 ; couverture 2 ≥ 1 (règle d'or). Endettement, repères des corrigés 51.8 et 51.10 : 0.40 faible, 0.56 dans la norme, 0.82 surendetté.")
 
   local function classer(cle, ratio, desc)

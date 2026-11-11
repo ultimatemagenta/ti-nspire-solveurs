@@ -15,6 +15,8 @@ Mode menu (suite de saisies, comme sur la calculatrice) :
   - saisies epuisees : ENTER sur chaque question restante (valeurs par defaut), 400 questions au plus ;
   - chaque question est imprimee (bandeau, question, aide, note, texte pre-rempli) ; « DEBORDE » si le texte
     ne tient pas a l'ecran (318 x 212, police simulee a 6 px par octet, donc pessimiste).
+Apres chaque document : controle du premier tableau (« TABLEAU OK » / « TABLEAU DEBORDE » pour une grille compacte,
+c.-a-d. un tableau comparatif qui doit tenir sur le premier ecran sans defilement).
 """
 import sys
 import lupa
@@ -108,6 +110,33 @@ def imprimer(L):
             print("<" + str(k) + ">")
     L.execute("on.paint(GC)")
     print("\n(dessin simule : OK)")
+    verifierTableau(L)
+
+
+def verifierTableau(L):
+    """Premier element « grille » du document : tient-il dans le premier ecran (318 x 212, bandeau 20 px, pied 16 px),
+    vue ouverte en haut ? Largeur mesuree avec la police simulee du banc (6 px par octet, pessimiste).
+    Grille compacte (tableau comparatif) : « TABLEAU OK » / « TABLEAU DEBORDE ». Grille ordinaire : simple information."""
+    api = L.globals().API_TEST
+    doc = api.doc()
+    haut = api.vue().haut or 0
+    for i in range(1, len(doc) + 1):
+        e = doc[i]
+        if e.k != "grille":
+            continue
+        y, hg = int(e._y or 0), int(e._h or 0)
+        bas = y + hg
+        if not e.compact:
+            print("(tableau 1 : grille ordinaire, y " + str(y) + " -> " + str(bas) + " px"
+                  + ("" if bas <= 196 else ", hors du premier ecran") + ")")
+            return
+        c = e._L
+        ok = bas <= 212 - 16 and not c.deborde and haut == 0
+        print("TABLEAU " + ("OK" if ok else "DEBORDE") + " : " + str(int(c.ncol)) + " colonnes + libelles, "
+              + str(int(c.tot)) + " x " + str(hg) + " px (largeur utile 314), y " + str(y) + " -> " + str(bas)
+              + " (limite 196), police " + str(int(c.f)) + ", lignes " + str(int(c.rh)) + " px, "
+              + str(int(c.nr)) + " lignes dont en-tete, vue en haut : " + ("oui" if haut == 0 else "non"))
+        return
 
 
 if __name__ == "__main__":

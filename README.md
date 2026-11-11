@@ -9,6 +9,8 @@ avec les formules écrites avant l'application numérique, les étapes interméd
 | `solveur.tns` | `MATH_1/calculatrice/lua/` | Mathématiques 1 : analyse de fonctions rationnelles (domaine, zéros, pôles, asymptotes, bijection, graphe), factorisation détaillée, vecteurs (problèmes complets), calcul littéral. Utilise le CAS via `math.evalStr`. |
 | `maths1.tns` | `MATH_1/calculatrice/` | Première version en Python TI (modules `*.py`). |
 
+**Installer sur ta calculatrice (sans ligne de commande) : voir [INSTALLATION.md](INSTALLATION.md)** — les `.tns` prêts à transférer sont dans [`classeurs/`](classeurs/).
+
 Socle commun (interface, menus, saisie guidée, rendu des tableaux et graphes) : `tools/nspire/socle_debut.lua` et `socle_fin.lua`.
 
 ## Construire

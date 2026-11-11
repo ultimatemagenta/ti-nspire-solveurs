@@ -1,4 +1,4 @@
--- socle commun des classeurs TI-Nspire (genere par tools/nspire/extraire_socle.py, ne pas editer a la main)
+-- socle commun des classeurs TI-Nspire (edite a la main depuis le 11.11.2026 ; ne plus relancer extraire_socle.py)
 platform.apiLevel = '2.4'
 ------------------------------------------------------------------ CAS
 local function cas(expr)
@@ -378,7 +378,23 @@ local SOLVEURS = {}          -- fonctions exposees aux tests sur PC (tools/nspir
 SOLVEURS_GLOBAL = SOLVEURS
 local function GRILLE(titre, lignes, opts)
   -- lignes : {{"libelle", "montant", "montant2"…, gras=true, trait=true}} ; opts.entetes = {"", "N", "N-1"}
-  table.insert(DOC, {k = "grille", titre = titre, lignes = lignes, opts = opts or {}})
+  -- opts.compact = true : grille compacte qui tient sur un ecran (police 9 -> 7, lignes 13 -> 9 px, colonnes mesurees,
+  --   titre facultatif) ; plus de opts.max lignes (13 par defaut) : tableaux successifs « titre (1/2) », chacun sur un ecran.
+  --   opts.pos : rang d'insertion dans le document (2 = juste sous le titre) ; opts.legende : ligne grise en petit sous les tableaux.
+  opts = opts or {}
+  if not opts.compact then table.insert(DOC, {k = "grille", titre = titre, lignes = lignes, opts = opts}); return end
+  local n, k = #lignes, 0
+  local nb = math.max(1, math.ceil(n / (opts.max or 13)))
+  local par = math.ceil(n / nb)
+  local function poser(e) if opts.pos then table.insert(DOC, opts.pos + k, e) else table.insert(DOC, e) end; k = k + 1 end
+  for c = 1, nb do
+    local sous = {}
+    for i = (c - 1) * par + 1, math.min(n, c * par) do table.insert(sous, lignes[i]) end
+    local t = titre
+    if nb > 1 then t = (titre or "Tableau") .. " (" .. c .. "/" .. nb .. ")" end
+    poser({k = "grille", compact = true, titre = t, lignes = sous, opts = opts})
+  end
+  if opts.legende and opts.legende ~= "" then poser({k = "gris", s = opts.legende, petit = true}) end
 end
 local function fmt(x, dec)
   -- montant avec separateur des milliers (apostrophe suisse)
