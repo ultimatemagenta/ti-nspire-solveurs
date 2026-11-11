@@ -425,7 +425,7 @@ local ABR = {liq1 = "Liq. 1", liq2 = "Liq. 2", liq3 = "Liq. 3", iac = "Int. AC",
   durcli = "Durée cli.", rotfrs = "Rot. fourn.", durfrs = "Durée fourn.", rotsto = "Rot. stocks", dursto = "Durée stocks",
   rinv = "Invest.", mcf = "Marge CF", fend = "Fact. endett.", roi = "ROI", roe = "ROE", rota = "Rot. actif HT", levier = "Levier HT"}
 -- {ids concernés, texte de légende} dans l'ordre d'affichage
-local LEG = {{{"liq1", "liq2", "liq3"}, "Liq. = liquidité"}, {{"iac", "iai"}, "Int. AC / AI = intensité des actifs circulants / immobilisés"},
+local LEG = {{{"liq1", "liq2", "liq3"}, "Liq. = liquidité"}, {{"iac"}, "Int. AC = intensité des actifs circulants"}, {{"iai"}, "Int. AI = intensité des actifs immobilisés"},
   {{"end"}, "Endett. = degré d'endettement"}, {{"fp"}, "Fin. propre = degré de financement propre"}, {{"auto"}, "Autofin. = degré d'autofinancement"},
   {{"couv1", "couv2"}, "Couv. = degré de couverture des AI"}, {{"tmb", "tme", "tmn"}, "TMB, TME, TMN = taux de marge brute, économique, nette"},
   {{"rotcli", "durcli", "rotfrs", "durfrs", "rotsto", "dursto", "rota"}, "Rot. = rotation, cli. = clients, fourn. = fournisseurs (durée en jours)"},
@@ -689,7 +689,7 @@ function F.analyse(brut)
     table.insert(l, ligne); table.insert(ids, d.id)
   end
   GRILLE("Les 26 ratios", l, {entetes = deux and {"", "N", "N-1"} or {"", "N"}, compact = true, pos = 2,
-    legende = F.legende(ids) .. ". N-1 : ratios du bilan seulement. Détail (formule, application, commentaire) plus bas. Liste des ratios 2018 Profil M · normes : 51 p.11-13 (PDF) · cash flow : 57 p.62."})
+    legende = F.legende(ids) .. ". N-1 : ratios du bilan seulement ; détail et commentaires plus bas (liste Profil M ; normes 51 p.11-13)."})
   montrer("Analyse complète")
 end
 
@@ -1047,6 +1047,7 @@ function F.comparerRatios(brut)
   end
   vider()
   T("Comparer " .. #ents .. " entreprise" .. (#ents > 1 and "s" or "") .. " (ratios)")
+  F.cmpTableau(ents)   -- tableau comparatif en tête : tout le premier écran, détails dessous
   G("Méthode (modèle : test 2025 ex. 5 et 51.8) : tableau des ratios en décimal comme le corrigé du prof, puis, par entreprise et par question, une à deux phrases (constat chiffré, valeur indicative, hypothèse ou conséquence) et une comparaison. Barème 2025 : 3 pts de calculs, 6 pts de commentaires (liquidité, structure de financement).")
   if defaut then G("Par défaut : test 2025 ex. 5, ratios du corrigé du prof (Bouvier, Corgi, Husky) ; financement propre et couverture 1 calculés depuis les bilans de l'énoncé (non demandés en 2025).") end
   F.cmpRendu(ents)
@@ -1119,7 +1120,8 @@ function F.comparer(brut)
   end
   X("FRN = actifs circulants − CE à court terme")
   for _, v in ipairs(vs) do if F.ok(v.ac, v.ct) then R("  " .. v.nom .. " : ", "", m(v.ac) .. " − " .. m(v.ct) .. " = " .. m(v.ac - v.ct)) end end
-  F.cmpRendu(ents, {lf})
+  F.cmpTableau(ents, {lf}, 2)   -- inséré juste sous le titre (premier écran), les calculs restent dessous
+  F.cmpRendu(ents)
   if defaut then G("Corrigé du prof (test 2025 ex. 5) : Bouvier 0.82 · 0.95 · 2.27 · 0.5 · 0.4 · 1.56 ; Corgi 0.26 · 0.97 · 1 · 0.62 · 0.58 · 1.00 ; Husky 0.17 · 0.75 · 1.27 · 0.24 · 0.82 · 1.67.") end
   montrer("Comparer des bilans")
 end
@@ -1363,10 +1365,14 @@ function F.cles(brut)
   local function taux(k) return function(i) local x = d[k] and d[k][i]; return x and ca[i] and ca[i] ~= 0 and x * 100 / ca[i] or nil end end
   local evol = function(i) return i > 1 and ca[i - 1] and ca[i - 1] ~= 0 and (ca[i] - ca[i - 1]) * 100 / ca[i - 1] or nil end
   local par = function(k) return function(i) local x = d[k] and d[k][i]; return x and x ~= 0 and ca[i] / x or nil end end
-  local l = {rang("Évolution du CA", evol, pc0), rang("Taux de marge brute", taux("mb"), pc0), rang("Taux de marge écon.", taux("ebit"), pc0),
-    rang("Taux de marge nette", taux("bn"), pc0), rang("CA par employé", par("eff"), function(r) return m(math.floor(r + 0.5)) end),
-    rang("CA au m²", par("m2"), function(r) return m(math.floor(r + 0.5)) end)}
-  GRILLE("Chiffres clés", l, {entetes = ent})
+  local l0 = {rang("Évol. CA", evol, pc0), rang("TMB", taux("mb"), pc0), rang("TME", taux("ebit"), pc0),
+    rang("TMN", taux("bn"), pc0), rang("CA/employé", par("eff"), function(r) return m(math.floor(r + 0.5)) end),
+    rang("CA/m²", par("m2"), function(r) return m(math.floor(r + 0.5)) end)}
+  local l = {}   -- lignes renseignées seulement
+  for _, x in ipairs(l0) do local plein = false; for i = 2, #x do if x[i] ~= "—" then plein = true end end; if plein then table.insert(l, x) end end
+  -- tableau en tête (juste sous le titre) : tout le premier écran, calculs et commentaire dessous
+  GRILLE("", l, {entetes = ent, compact = true, pos = 2,
+    legende = "Évol. CA = évolution du CA par rapport à l'année précédente · TMB, TME, TMN = taux de marge brute, économique (EBIT), nette · CA/employé = CAN ÷ effectif · CA/m² = CAN ÷ surface de vente."})
   T("Calculs")
   X("Évolution du CA = (CA − CA précédent) × 100 ÷ CA précédent")
   for i = 2, n do X(string.format("  %s : (%s − %s) × 100 ÷ %s = %s", an[i], m(ca[i]), m(ca[i - 1]), m(ca[i - 1]), p2(evol(i)))) end

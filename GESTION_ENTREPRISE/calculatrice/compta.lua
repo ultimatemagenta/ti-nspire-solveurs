@@ -1,4 +1,4 @@
--- socle commun des classeurs TI-Nspire (genere par tools/nspire/extraire_socle.py, ne pas editer a la main)
+-- socle commun des classeurs TI-Nspire (edite a la main depuis le 11.11.2026 ; ne plus relancer extraire_socle.py)
 platform.apiLevel = '2.4'
 ------------------------------------------------------------------ CAS
 local function cas(expr)
@@ -378,7 +378,23 @@ local SOLVEURS = {}          -- fonctions exposees aux tests sur PC (tools/nspir
 SOLVEURS_GLOBAL = SOLVEURS
 local function GRILLE(titre, lignes, opts)
   -- lignes : {{"libelle", "montant", "montant2"…, gras=true, trait=true}} ; opts.entetes = {"", "N", "N-1"}
-  table.insert(DOC, {k = "grille", titre = titre, lignes = lignes, opts = opts or {}})
+  -- opts.compact = true : grille compacte qui tient sur un ecran (police 9 -> 7, lignes 13 -> 9 px, colonnes mesurees,
+  --   titre facultatif) ; plus de opts.max lignes (13 par defaut) : tableaux successifs « titre (1/2) », chacun sur un ecran.
+  --   opts.pos : rang d'insertion dans le document (2 = juste sous le titre) ; opts.legende : ligne grise en petit sous les tableaux.
+  opts = opts or {}
+  if not opts.compact then table.insert(DOC, {k = "grille", titre = titre, lignes = lignes, opts = opts}); return end
+  local n, k = #lignes, 0
+  local nb = math.max(1, math.ceil(n / (opts.max or 13)))
+  local par = math.ceil(n / nb)
+  local function poser(e) if opts.pos then table.insert(DOC, opts.pos + k, e) else table.insert(DOC, e) end; k = k + 1 end
+  for c = 1, nb do
+    local sous = {}
+    for i = (c - 1) * par + 1, math.min(n, c * par) do table.insert(sous, lignes[i]) end
+    local t = titre
+    if nb > 1 then t = (titre or "Tableau") .. " (" .. c .. "/" .. nb .. ")" end
+    poser({k = "grille", compact = true, titre = t, lignes = sous, opts = opts})
+  end
+  if opts.legende and opts.legende ~= "" then poser({k = "gris", s = opts.legende, petit = true}) end
 end
 local function fmt(x, dec)
   -- montant avec separateur des milliers (apostrophe suisse)
@@ -3264,6 +3280,28 @@ local COURT = {liq1 = "Liquidité 1", liq2 = "Liquidité 2", liq3 = "Liquidité 
   rotfrs = "Rotation fournisseurs", durfrs = "Durée crédits obtenus", rotsto = "Rotation stocks", dursto = "Durée stocks",
   rinv = "Ratio d'investissement", mcf = "Marge de cash flow", fend = "Facteur d'endettement", roi = "ROI", roe = "ROE",
   rota = "Rotation actif (HT)", levier = "Effet levier (HT)"}
+-- abréviations des tableaux comparatifs compacts (premier écran) ; légende : F.legende(ids)
+local ABR = {liq1 = "Liq. 1", liq2 = "Liq. 2", liq3 = "Liq. 3", iac = "Int. AC", iai = "Int. AI", ["end"] = "Endett.", fp = "Fin. propre",
+  auto = "Autofin.", couv1 = "Couv. 1", couv2 = "Couv. 2", tmb = "TMB", tme = "TME", tmn = "TMN", rotcli = "Rot. cli.",
+  durcli = "Durée cli.", rotfrs = "Rot. fourn.", durfrs = "Durée fourn.", rotsto = "Rot. stocks", dursto = "Durée stocks",
+  rinv = "Invest.", mcf = "Marge CF", fend = "Fact. endett.", roi = "ROI", roe = "ROE", rota = "Rot. actif HT", levier = "Levier HT"}
+-- {ids concernés, texte de légende} dans l'ordre d'affichage
+local LEG = {{{"liq1", "liq2", "liq3"}, "Liq. = liquidité"}, {{"iac"}, "Int. AC = intensité des actifs circulants"}, {{"iai"}, "Int. AI = intensité des actifs immobilisés"},
+  {{"end"}, "Endett. = degré d'endettement"}, {{"fp"}, "Fin. propre = degré de financement propre"}, {{"auto"}, "Autofin. = degré d'autofinancement"},
+  {{"couv1", "couv2"}, "Couv. = degré de couverture des AI"}, {{"tmb", "tme", "tmn"}, "TMB, TME, TMN = taux de marge brute, économique, nette"},
+  {{"rotcli", "durcli", "rotfrs", "durfrs", "rotsto", "dursto", "rota"}, "Rot. = rotation, cli. = clients, fourn. = fournisseurs (durée en jours)"},
+  {{"rinv"}, "Invest. = ratio d'investissement"}, {{"mcf"}, "Marge CF = marge de cash flow"}, {{"fend"}, "Fact. endett. = facteur d'endettement"},
+  {{"roi", "roe"}, "ROI, ROE = rentabilité des capitaux investis, des fonds propres"}, {{"rota", "levier"}, "HT = hors test"}}
+function F.legende(ids)
+  local pres, t = {}, {}
+  for _, id in ipairs(ids) do pres[id] = true end
+  for _, g in ipairs(LEG) do
+    local ok = false
+    for _, id in ipairs(g[1]) do if pres[id] then ok = true end end
+    if ok then table.insert(t, g[2]) end
+  end
+  return table.concat(t, " · ")
+end
 
 -- durées : 360 ÷ rotation arrondie à 2 décimales (le prof divise par la rotation arrondie : 51.24, 360 ÷ 5.19 = 69.36)
 for _, d in ipairs(RAT) do
@@ -3499,22 +3537,20 @@ function F.analyse(brut)
     X("Commentaire : " .. (v.cf - v.inv >= 0 and "free cash flow positif : marge de manœuvre pour rembourser des dettes ou verser un dividende."
       or "free cash flow négatif : aucune marge de manœuvre pour rembourser des dettes ou verser un dividende exceptionnel (57.22)."))
   end
-  -- tableau de synthèse
-  local l = {}
+  F.conclusion(v)
+  -- tableau des 26 ratios en tête du document (juste sous le titre) : 2 tableaux compacts de 13 lignes, chacun sur un écran
+  local l, ids = {}, {}
   local v1
   if deux then
     v1 = F.deriver({liq = v.liq1, cre = v.cre1, sto = v.sto1, ai = v.ai1, ct = v.ct1, lt = v.lt1, fp = v.fp1, cc = v.cc1})
   end
   for i, d in ipairs(RAT) do
-    local ligne = {COURT[d.id], F.court(d, v._r[d.id])}
+    local ligne = {ABR[d.id], F.court(d, v._r[d.id])}
     if deux then ligne[3] = (i <= 10) and F.court(d, F.val(v1, d.id)) or "" end
-    table.insert(l, ligne)
+    table.insert(l, ligne); table.insert(ids, d.id)
   end
-  T("Synthèse")
-  G("HT = hors test (décomposition du ROI, effet de levier).")
-  GRILLE("Les 26 ratios", l, {entetes = deux and {"", "N", "N-1"} or {"", "N"}})
-  G("Liste des ratios 2018 Profil M · normes : 51 p.11-13 (PDF) · cash flow : 57 p.62")
-  F.conclusion(v)
+  GRILLE("Les 26 ratios", l, {entetes = deux and {"", "N", "N-1"} or {"", "N"}, compact = true, pos = 2,
+    legende = F.legende(ids) .. ". N-1 : ratios du bilan seulement ; détail et commentaires plus bas (liste Profil M ; normes 51 p.11-13)."})
   montrer("Analyse complète")
 end
 
@@ -3678,23 +3714,28 @@ function F.cmpOr(r)
 end
 
 -- analyse complète d'un groupe d'entreprises : ents = {{nom = "…", r = {liq1 = 0.82, …}}, …}
-function F.cmpRendu(ents, lignesSup)
-  local n = #ents
-  local larg = math.max(4, math.floor(170 / math.max(n, 1) / 6))
+-- tableau comparatif compact (ratios renseignés seulement), à placer juste sous le titre : pos = rang dans le document
+function F.cmpTableau(ents, lignesSup, pos)
   local ent = {""}
-  for _, e in ipairs(ents) do table.insert(ent, F.tronquer(e.nom, larg)) end
-  local l = {}
+  for _, e in ipairs(ents) do table.insert(ent, e.nom) end   -- la grille compacte tronque les noms à la largeur des colonnes
+  local l, ids = {}, {}
   for _, id in ipairs(CMP_IDS) do
     local present = false
     for _, e in ipairs(ents) do if e.r[id] then present = true end end
     if present then
-      local ligne = {COURT[id]}
+      local ligne = {ABR[id]}
       for _, e in ipairs(ents) do local x = e.r[id]; ligne[#ligne + 1] = x and (CMP_PCT[id] and p2(x * 100) or d2(x)) or "—" end
-      table.insert(l, ligne)
+      table.insert(l, ligne); table.insert(ids, id)
     end
   end
   for _, x in ipairs(lignesSup or {}) do table.insert(l, x) end
-  GRILLE("Tableau comparatif", l, {entetes = ent})
+  local leg = F.legende(ids)
+  if lignesSup and #lignesSup > 0 then leg = leg .. " · FRN = fonds de roulement net (AC − CE ct)" end
+  GRILLE("", l, {entetes = ent, compact = true, pos = pos, legende = leg .. ". Rentabilités et marges en %, autres ratios en décimal."})
+end
+
+function F.cmpRendu(ents)
+  local n = #ents
   G("Valeurs indicatives (51 p.11-13) : liquidité 1 de 0.2 à 0.3 ; liquidité 2 ≥ 1 ; liquidité 3 de 1.5 à 2 ; couverture 1 de 0.6 à 0.8 ; couverture 2 ≥ 1 (règle d'or). Endettement, repères des corrigés 51.8 et 51.10 : 0.40 faible, 0.56 dans la norme, 0.82 surendetté.")
 
   local function classer(cle, ratio, desc)
@@ -3867,6 +3908,7 @@ function F.comparerRatios(brut)
   end
   vider()
   T("Comparer " .. #ents .. " entreprise" .. (#ents > 1 and "s" or "") .. " (ratios)")
+  F.cmpTableau(ents)   -- tableau comparatif en tête : tout le premier écran, détails dessous
   G("Méthode (modèle : test 2025 ex. 5 et 51.8) : tableau des ratios en décimal comme le corrigé du prof, puis, par entreprise et par question, une à deux phrases (constat chiffré, valeur indicative, hypothèse ou conséquence) et une comparaison. Barème 2025 : 3 pts de calculs, 6 pts de commentaires (liquidité, structure de financement).")
   if defaut then G("Par défaut : test 2025 ex. 5, ratios du corrigé du prof (Bouvier, Corgi, Husky) ; financement propre et couverture 1 calculés depuis les bilans de l'énoncé (non demandés en 2025).") end
   F.cmpRendu(ents)
@@ -3939,7 +3981,8 @@ function F.comparer(brut)
   end
   X("FRN = actifs circulants − CE à court terme")
   for _, v in ipairs(vs) do if F.ok(v.ac, v.ct) then R("  " .. v.nom .. " : ", "", m(v.ac) .. " − " .. m(v.ct) .. " = " .. m(v.ac - v.ct)) end end
-  F.cmpRendu(ents, {lf})
+  F.cmpTableau(ents, {lf}, 2)   -- inséré juste sous le titre (premier écran), les calculs restent dessous
+  F.cmpRendu(ents)
   if defaut then G("Corrigé du prof (test 2025 ex. 5) : Bouvier 0.82 · 0.95 · 2.27 · 0.5 · 0.4 · 1.56 ; Corgi 0.26 · 0.97 · 1 · 0.62 · 0.58 · 1.00 ; Husky 0.17 · 0.75 · 1.27 · 0.24 · 0.82 · 1.67.") end
   montrer("Comparer des bilans")
 end
@@ -4183,10 +4226,14 @@ function F.cles(brut)
   local function taux(k) return function(i) local x = d[k] and d[k][i]; return x and ca[i] and ca[i] ~= 0 and x * 100 / ca[i] or nil end end
   local evol = function(i) return i > 1 and ca[i - 1] and ca[i - 1] ~= 0 and (ca[i] - ca[i - 1]) * 100 / ca[i - 1] or nil end
   local par = function(k) return function(i) local x = d[k] and d[k][i]; return x and x ~= 0 and ca[i] / x or nil end end
-  local l = {rang("Évolution du CA", evol, pc0), rang("Taux de marge brute", taux("mb"), pc0), rang("Taux de marge écon.", taux("ebit"), pc0),
-    rang("Taux de marge nette", taux("bn"), pc0), rang("CA par employé", par("eff"), function(r) return m(math.floor(r + 0.5)) end),
-    rang("CA au m²", par("m2"), function(r) return m(math.floor(r + 0.5)) end)}
-  GRILLE("Chiffres clés", l, {entetes = ent})
+  local l0 = {rang("Évol. CA", evol, pc0), rang("TMB", taux("mb"), pc0), rang("TME", taux("ebit"), pc0),
+    rang("TMN", taux("bn"), pc0), rang("CA/employé", par("eff"), function(r) return m(math.floor(r + 0.5)) end),
+    rang("CA/m²", par("m2"), function(r) return m(math.floor(r + 0.5)) end)}
+  local l = {}   -- lignes renseignées seulement
+  for _, x in ipairs(l0) do local plein = false; for i = 2, #x do if x[i] ~= "—" then plein = true end end; if plein then table.insert(l, x) end end
+  -- tableau en tête (juste sous le titre) : tout le premier écran, calculs et commentaire dessous
+  GRILLE("", l, {entetes = ent, compact = true, pos = 2,
+    legende = "Évol. CA = évolution du CA par rapport à l'année précédente · TMB, TME, TMN = taux de marge brute, économique (EBIT), nette · CA/employé = CAN ÷ effectif · CA/m² = CAN ÷ surface de vente."})
   T("Calculs")
   X("Évolution du CA = (CA − CA précédent) × 100 ÷ CA précédent")
   for i = 2, n do X(string.format("  %s : (%s − %s) × 100 ÷ %s = %s", an[i], m(ca[i]), m(ca[i - 1]), m(ca[i - 1]), p2(evol(i)))) end
@@ -5974,6 +6021,93 @@ local function dessinerGrille(gc, e, x0, y0, w)
   gc:setColorRGB(150, 150, 150); gc:drawRect(x0, y0 + 16, w - 2, y - y0 - 16)
 end
 
+-- grille compacte (GRILLE(..., {compact = true})) : tout le tableau sur un ecran.
+-- dispo = hauteur libre depuis le haut de la grille jusqu'au pied quand le document est en haut ;
+-- si elle ne suffit pas, la grille se dimensionne pour un ecran entier (tableau suivant d'une serie).
+local function texteC(s) return (tostring(s or ""):gsub(" %%", "%%"):gsub("−", "-")) end
+local function couperC(gc, s, larg)
+  while gc:getStringWidth(s) > larg and #s > 1 do
+    s = s:sub(1, -2)
+    while #s > 1 and s:byte(-1) >= 128 and s:byte(-1) < 192 do s = s:sub(1, -2) end   -- pas de demi-caractere UTF-8
+    if #s > 0 and s:byte(-1) >= 192 then s = s:sub(1, -2) end
+  end
+  return s
+end
+local function mesureCompacte(gc, e, w, dispo)
+  local rows = {}
+  if e.opts.entetes then table.insert(rows, {c = e.opts.entetes, ent = true}) end
+  for _, l in ipairs(e.lignes) do table.insert(rows, {c = l, l = l}) end
+  local ncol = 0
+  for _, r in ipairs(rows) do ncol = math.max(ncol, #r.c - 1) end
+  local ht = (e.titre and e.titre ~= "") and 12 or 0
+  local nr = math.max(#rows, 1)
+  if not dispo or dispo < ht + nr * 9 + 2 then dispo = 212 - 36 - 2 end
+  local rh = math.max(9, math.min(13, math.floor((dispo - ht - 2) / nr)))
+  local f0 = rh >= 12 and 9 or (rh >= 10 and 8 or 7)
+  local L
+  for f = f0, 7, -1 do
+    for avecEnt = 1, 0, -1 do       -- d'abord en-tetes entiers, sinon en-tetes tronques a la largeur des valeurs
+      local wl, wc = 0, {}
+      for j = 1, ncol do wc[j] = 0 end
+      for _, r in ipairs(rows) do
+        gc:setFont("sansserif", (r.ent or (r.l and r.l.gras)) and "b" or "r", f)
+        wl = math.max(wl, gc:getStringWidth(texteC(r.c[1])) + 5 + (r.l and r.l.retrait or 0) * 6)
+        if not r.ent or avecEnt == 1 then
+          for j = 1, ncol do wc[j] = math.max(wc[j], gc:getStringWidth(texteC(r.c[j + 1])) + 5) end
+        end
+      end
+      local tot = wl
+      for j = 1, ncol do wc[j] = math.max(wc[j], 14); tot = tot + wc[j] end
+      L = {f = f, rh = rh, wl = wl, wc = wc, tot = tot, ht = ht, ncol = ncol, nr = #rows}
+      if tot <= w - 2 then break end
+    end
+    if L.tot <= w - 2 then break end
+  end
+  L.deborde = L.tot > w - 2
+  local reste = (w - 2) - L.tot
+  if reste > 0 then          -- place en trop : un peu pour les libelles, le reste reparti entre les colonnes
+    local pl = ncol > 0 and math.floor(reste * 0.25) or reste
+    L.wl = L.wl + pl
+    for j = 1, ncol do L.wc[j] = L.wc[j] + math.floor((reste - pl) / ncol) end
+  elseif reste < 0 then L.wl = math.max(20, L.wl + reste) end   -- trop large : libelles tronques
+  L.h = ht + L.nr * L.rh + 2
+  e._L = L
+  return L.h
+end
+
+local function dessinerCompacte(gc, e, x0, y0, w)
+  local L = e._L
+  local y = y0
+  if L.ht > 0 then
+    gc:setColorRGB(30, 70, 160); gc:setFont("sansserif", "b", 9); gc:drawString(e.titre, x0 + 2, y - 1, "top")
+    y = y + L.ht
+  end
+  local ytab = y
+  local dy = math.max(0, math.floor((L.rh - L.f - 4) / 2))
+  local function rang(c, l, ent)
+    if ent then gc:setColorRGB(220, 230, 250); gc:fillRect(x0, y, w - 2, L.rh)
+    elseif l.fond then gc:setColorRGB(235, 240, 250); gc:fillRect(x0, y, w - 2, L.rh) end
+    gc:setColorRGB(0, 0, 0)
+    gc:setFont("sansserif", (ent or l.gras) and "b" or "r", L.f)
+    local ret = (l and l.retrait or 0) * 6
+    gc:drawString(couperC(gc, texteC(c[1]), L.wl - 4 - ret), x0 + 2 + ret, y + dy, "top")
+    local xr = x0 + L.wl
+    for j = 1, L.ncol do
+      xr = xr + L.wc[j]
+      local s = couperC(gc, texteC(c[j + 1]), L.wc[j] - 3)
+      gc:drawString(s, xr - 3 - gc:getStringWidth(s), y + dy, "top")
+    end
+    if l and l.trait then gc:setColorRGB(0, 0, 0); gc:drawLine(x0 + L.wl, y, x0 + w - 3, y) end
+    y = y + L.rh
+    gc:setColorRGB(225, 225, 225); gc:drawLine(x0, y, x0 + w - 3, y)
+  end
+  if e.opts.entetes then rang(e.opts.entetes, nil, true) end
+  for _, l in ipairs(e.lignes) do rang(l, l, false) end
+  gc:setColorRGB(150, 150, 150)
+  gc:drawRect(x0, ytab, w - 2, y - ytab)
+  gc:drawLine(x0 + L.wl, ytab, x0 + L.wl, y)
+end
+
 ------------------------------------------------------------------ dessin
 local BLEU = {30, 70, 160}
 
@@ -6071,13 +6205,14 @@ local function dessinerSaisie(gc, w, h)
   pied(gc, w, h, saisie.pied or "◄► curseur  ▲▼ historique  enter : ok  esc : annuler")
 end
 
-local function hauteurElt(gc, e, w)
+local function hauteurElt(gc, e, w, dispo)
   if e.k == "txt" or e.k == "gris" or e.k == "alerte" then
-    gc:setFont("sansserif", e.k == "gris" and "i" or (e.k == "alerte" and "b" or "r"), 10)
+    gc:setFont("sansserif", e.k == "gris" and "i" or (e.k == "alerte" and "b" or "r"), e.petit and 8 or 10)
     e._l = couper(gc, e.s, w - 10)
-    return 4 + 15 * #e._l
+    return 4 + (e.petit and 11 or 15) * #e._l
   end
   if e.k == "tab" then return hauteurTab(e) + 2 end
+  if e.k == "grille" and e.compact then return mesureCompacte(gc, e, w - 2, dispo) + 2 end
   if e.k == "grille" then return hauteurGrille(e) + 2 end
   if e.k == "graphe" then return HGRAPHE + 14 end
   if e.k == "courbes" then return HGRAPHE + 14 end
@@ -6096,9 +6231,12 @@ local function dessinerVue(gc, w, h)
   local y = 22 - vue.haut
   local total = 0
   for _, e in ipairs(vue.doc) do
-    local he = hauteurElt(gc, e, w)
+    -- place libre sous l'element quand le document est en haut (independant du defilement) : grilles compactes
+    local he = hauteurElt(gc, e, w, (h - 16) - (22 + total + 1))
+    e._y, e._h = 22 + total + 1, he - 2   -- position dans le document en haut de vue (banc de test)
     if y + he > 20 and y < h - 16 then
-      if e.k == "grille" then dessinerGrille(gc, e, 2, y + 1, w - 2)
+      if e.k == "grille" and e.compact then dessinerCompacte(gc, e, 2, y + 1, w - 2)
+      elseif e.k == "grille" then dessinerGrille(gc, e, 2, y + 1, w - 2)
       elseif e.k == "tab" then dessinerTab(gc, e, 2, y + 1, w - 2)
       elseif e.k == "graphe" then dessinerGraphe(gc, e, 2, y + 1, w - 2)
       elseif e.k == "courbes" then dessinerCourbes(gc, e, 2, y + 1, w - 2)
@@ -6109,7 +6247,8 @@ local function dessinerVue(gc, w, h)
         if e.k == "txt" then gc:setColorRGB(0, 0, 0); gc:setFont("sansserif", "r", 10)
         elseif e.k == "gris" then gc:setColorRGB(110, 110, 110); gc:setFont("sansserif", "i", 10)
         else gc:setColorRGB(200, 0, 0); gc:setFont("sansserif", "b", 10) end
-        for i, l in ipairs(e._l or {e.s}) do gc:drawString(l, 4, y + 2 + 15 * (i - 1), "top") end
+        if e.petit then gc:setFont("sansserif", "i", 8) end
+        for i, l in ipairs(e._l or {e.s}) do gc:drawString(l, 4, y + 2 + (e.petit and 11 or 15) * (i - 1), "top") end
       else
         local res = e.k == "res"
         if res then gc:setColorRGB(0, 120, 0) else gc:setColorRGB(0, 0, 0) end
@@ -6222,7 +6361,7 @@ function on.save() return {hist = HIST} end
 function on.restore(t) if type(t) == "table" and t.hist then HIST = t.hist end end
 
 API_TEST = {doc = function() return DOC end, hist = function() return HIST end,
-  ecran = function() return ecran end, saisie = function() return saisie end, menu = function() return MENU, sel end,
+  ecran = function() return ecran end, vue = function() return vue end, saisie = function() return saisie end, menu = function() return MENU, sel end,
   -- saisie simulee : txt = nil garde le texte pre-rempli (ENTER seul)
   entrer = function(txt) if txt then saisie.txt = txt; saisie.cur = #txt end; on.enterKey() end,
   choisir = function(i) sel = i; on.enterKey() end}

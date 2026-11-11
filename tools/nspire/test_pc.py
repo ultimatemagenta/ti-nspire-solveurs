@@ -133,7 +133,7 @@ def verifierTableau(L):
         c = e._L
         ok = bas <= 212 - 16 and not c.deborde and haut == 0
         print("TABLEAU " + ("OK" if ok else "DEBORDE") + " : " + str(int(c.ncol)) + " colonnes + libelles, "
-              + str(int(c.tot)) + " x " + str(hg) + " px (largeur utile 314), y " + str(y) + " -> " + str(bas)
+              + "largeur necessaire " + str(int(c.tot)) + " / 314 px, hauteur " + str(hg) + " px, y " + str(y) + " -> " + str(bas)
               + " (limite 196), police " + str(int(c.f)) + ", lignes " + str(int(c.rh)) + " px, "
               + str(int(c.nr)) + " lignes dont en-tete, vue en haut : " + ("oui" if haut == 0 else "non"))
         return
