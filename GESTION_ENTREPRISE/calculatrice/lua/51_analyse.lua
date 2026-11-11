@@ -1092,58 +1092,59 @@ function F.comparer(brut)
   montrer("Comparer des bilans")
 end
 
--- questionnaire en trois temps : nombre d'entreprises, noms, puis chaque bilan ou chaque ratio
+-- un seul questionnaire : nombre d'entreprises, noms, puis chaque bilan ou chaque ratio (« < » remonte jusqu'au nombre)
 function F.qComparer(parRatios)
   local titre = parRatios and "Comparer (ratios)" or "Comparer (bilans)"
-  COMMUN.questionnaire(titre, {{cle = "n", lib = "Nombre d'entreprises à comparer (1 à 5)", defaut = "3",
-      aide = "Modèle : test 2025 ex. 5 (Bouvier, Corgi, Husky) et 51.8 (X, Y, Z). Les valeurs proposées ensuite sont celles du corrigé du prof.",
-      valider = function(t) local x = COMMUN.num(t); if not x or x < 1 or x > 5 or x ~= math.floor(x) then return "Entrer un nombre entier de 1 à 5." end end}},
-    function(v1)
-      local n = v1.n
-      local cn = {}
-      for j = 1, n do
-        table.insert(cn, {cle = "nom" .. j, lib = "Nom de l'entreprise " .. j, defaut = DEF_NOMS[j], texte = true,
-          aide = "Nom court (8 caractères au plus) : il sert d'en-tête de colonne dans le tableau comparatif."})
-      end
-      COMMUN.questionnaire(titre, cn, function(v2)
-        local noms = {}
-        for j = 1, n do noms[j] = ((v2["nom" .. j] or ("E" .. j)):gsub("[/:;]", " ")) end
-        local ch = {}
-        for j = 1, n do
-          if parRatios then
-            for _, id in ipairs(CMP_IDS) do
-              table.insert(ch, {cle = id .. "_" .. j, lib = noms[j] .. " — " .. RID[id].nom, defaut = DEF_RAT[j] and DEF_RAT[j][id] or "",
-                aide = CMP_AIDE[id] .. FORMAT_R, opt = true})
-            end
-          else
-            for q, k in ipairs(CMP_K) do
-              table.insert(ch, {cle = k .. "_" .. j, lib = noms[j] .. " — " .. CAT[k], defaut = DEF_BIL[j] and DEF_BIL[j][q] or "",
-                aide = AIDE[k], opt = k == "cc"})
-            end
+  local function nomE(val, j)
+    local s = COMMUN.lu(val, "nom_" .. j, DEF_NOMS[j])
+    if s == nil or s == "" then s = "E" .. j end
+    return (s:gsub("[/:;]", " "))
+  end
+  COMMUN.questionnaire(titre, COMMUN.repeter({
+    {groupe = "Entreprise", n = {cle = "n", lib = "Nombre d'entreprises à comparer (1 à 5)", defaut = "3", max = 5,
+        aide = "Modèle : test 2025 ex. 5 (Bouvier, Corgi, Husky) et 51.8 (X, Y, Z). Les valeurs proposées ensuite sont celles du corrigé du prof."},
+      brut = true,
+      champs = function(j) return {{cle = "nom", lib = "Nom de l'entreprise " .. j, defaut = DEF_NOMS[j], texte = true,
+        aide = "Nom court (8 caractères au plus) : il sert d'en-tête de colonne dans le tableau comparatif."}} end},
+    {groupe = "Valeurs", brut = true, nombre = function(val) return math.max(1, math.min(5, COMMUN.entier(COMMUN.lu(val, "n", "3"), 1))) end,
+      champs = function(j, val)
+        local ch, nom = {}, nomE(val, j)
+        if parRatios then
+          for _, id in ipairs(CMP_IDS) do
+            table.insert(ch, {cle = id, lib = nom .. " — " .. RID[id].nom, defaut = DEF_RAT[j] and DEF_RAT[j][id] or "",
+              aide = CMP_AIDE[id] .. FORMAT_R, opt = true})
+          end
+        else
+          for q, k in ipairs(CMP_K) do
+            table.insert(ch, {cle = k, lib = nom .. " — " .. CAT[k], defaut = DEF_BIL[j] and DEF_BIL[j][q] or "",
+              aide = AIDE[k], opt = k == "cc"})
           end
         end
-        COMMUN.questionnaire(titre, ch, function(v3)
-          local seg = {}
-          for j = 1, n do
-            local t = {}
-            if parRatios then
-              for _, id in ipairs(CMP_IDS) do
-                local s = v3._txt[id .. "_" .. j] or ""
-                if s ~= "" then table.insert(t, id .. "=" .. s:gsub("%s", "")) end
-              end
-              table.insert(seg, noms[j] .. ": " .. table.concat(t, ";"))
-            else
-              for _, k in ipairs(CMP_K) do
-                local s = (v3._txt[k .. "_" .. j] or ""):gsub("%s", "")
-                table.insert(t, s ~= "" and s or "-")
-              end
-              table.insert(seg, noms[j] .. ": " .. table.concat(t, " "))
-            end
-          end
-          if parRatios then F.comparerRatios(table.concat(seg, " / ")) else F.comparer(table.concat(seg, " / ")) end
-        end)
-      end)
-    end)
+        return ch
+      end},
+  }), function(v3)
+    local n = math.max(1, math.min(5, COMMUN.entier(v3.n, 1)))
+    local noms = {}
+    for j = 1, n do noms[j] = nomE(v3._txt, j) end
+    local seg = {}
+    for j = 1, n do
+      local t = {}
+      if parRatios then
+        for _, id in ipairs(CMP_IDS) do
+          local s = v3._txt[id .. "_" .. j] or ""
+          if s ~= "" then table.insert(t, id .. "=" .. s:gsub("%s", "")) end
+        end
+        table.insert(seg, noms[j] .. ": " .. table.concat(t, ";"))
+      else
+        for _, k in ipairs(CMP_K) do
+          local s = (v3._txt[k .. "_" .. j] or ""):gsub("%s", "")
+          table.insert(t, s ~= "" and s or "-")
+        end
+        table.insert(seg, noms[j] .. ": " .. table.concat(t, " "))
+      end
+    end
+    if parRatios then F.comparerRatios(table.concat(seg, " / ")) else F.comparer(table.concat(seg, " / ")) end
+  end)
 end
 
 ------------------------------------------------------------------ 4. bilan analytique depuis une liste de postes (51.10, 51.11)
@@ -1501,58 +1502,69 @@ function F.unRatio(id, brut)
   montrer(d.nom)
 end
 
------------------------------------------------------------------- questionnaires guidés (bilan analytique, chiffres clés)
-local AIDE_LISTE = "Format nom=montant (ex. Caisse=2600 ; déduction : ./.Ducroire=1200). Classement d'après le nom : caisse, poste, banque, titres → liquidités ; clients, ducroire → créances ; stock ; mobilier, machines, véhicules → AI ; fournisseurs → CE ct ; emprunt, hypothèque → CE lt ; capital, réserves, bénéfice. Forcer : ct:Banque=500."
-function F.validerPoste(t)
-  if t == "" then return nil end
-  local nom, val = t:match("^(.-)=(.*)$")
-  if not nom or nom:gsub("%s", "") == "" or COMMUN.num(val) == nil then return "Format attendu : nom=montant (ex. Caisse=2600)." end
+------------------------------------------------------------------ questionnaires guidés (bilan analytique, chiffres clés) : une donnée = un champ
+local AIDE_NOM = "Nom du poste : il le classe (caisse, poste, banque, titres → liquidités ; clients, ducroire → créances ; stock ; mobilier, machines, véhicules → AI ; fournisseurs → CE ct ; emprunt, hypothèque → CE lt ; capital, réserves, bénéfice). Déduction : ./.Ducroire. Forcer : ct:Banque."
+function F.validerNom(t)
+  if t:find("[=;]") then return "Le nom ne doit contenir ni « = » ni « ; »." end
 end
 function F.qAnalytique()
-  local ch, div = {}, nil
+  local postes, div = {}, nil
   for seg in DEF_LISTE:gmatch("[^;]+") do
-    local val = seg:match("^div=(.*)$")
-    if val then div = val
-    else table.insert(ch, {cle = "p" .. (#ch + 1), lib = "Poste " .. (#ch + 1) .. " du bilan (nom=montant)", defaut = seg, texte = true, aide = AIDE_LISTE, valider = F.validerPoste}) end
+    local nom, val = seg:match("^(.-)=(.*)$")
+    if nom == "div" then div = val else table.insert(postes, {nom, val}) end
   end
-  for _ = 1, 4 do
-    table.insert(ch, {cle = "p" .. (#ch + 1), lib = "Poste " .. (#ch + 1) .. " du bilan (nom=montant)", defaut = "", texte = true, opt = true,
-      aide = "Poste supplémentaire (vide = aucun). " .. AIDE_LISTE, valider = F.validerPoste})
-  end
-  table.insert(ch, {cle = "div", lib = "Dividende décidé par l'AG", defaut = div or "", opt = true,
-    aide = "Le bénéfice de l'exercice est réparti AVANT de classer : dividende → CE à court terme, solde → réserve issue du bénéfice (capital de croissance) (51.10). Vide = bénéfice laissé dans le capital de croissance."})
-  COMMUN.questionnaire("Bilan analytique", ch, function(_, _, rep)
+  COMMUN.questionnaire("Bilan analytique", COMMUN.repeter({
+    {groupe = "Poste", n = {cle = "np", lib = "Combien de postes au bilan ?", defaut = tostring(#postes), max = 30,
+        aide = "Postes de la liste de l'énoncé (51.10 : 13), sans le dividende (question suivante)."},
+      champs = function(j) local p = postes[j] or {"", ""}; return {
+        {cle = "pn", lib = "nom", defaut = p[1], texte = true, aide = AIDE_NOM, valider = F.validerNom},
+        {cle = "pm", lib = "montant", defaut = p[2], aide = "Solde du poste au bilan (en CHF ; une déduction se signale par ./. devant le nom)."}} end},
+    {cle = "div", lib = "Dividende décidé par l'AG", defaut = div or "", opt = true,
+      aide = "Le bénéfice de l'exercice est réparti AVANT de classer : dividende → CE à court terme, solde → réserve issue du bénéfice (capital de croissance) (51.10). Vide = bénéfice laissé dans le capital de croissance."},
+  }), function(v)
     local t = {}
-    for k, c in ipairs(ch) do
-      if rep[k] ~= "" then table.insert(t, c.cle == "div" and ("div=" .. rep[k]) or rep[k]) end
+    for _, e in ipairs(COMMUN.elements(v, COMMUN.entier(v.np, 0), {"pn", "pm"})) do
+      if e.pn ~= "" and e.pm ~= "" then table.insert(t, e.pn .. "=" .. e.pm) end
     end
+    if (v._txt.div or "") ~= "" then table.insert(t, "div=" .. v._txt.div) end
     F.analytique(table.concat(t, ";"))
   end)
 end
 
 local AIDE_CLES = {
-  an = {"Années (séparées par des espaces)", "Ex. 1 2 3 4 ou 2023 2024 2025. Les questions suivantes demandent une valeur par année, dans le même ordre, séparées par des espaces."},
-  ca = {"CA net de chaque année", "CA net = ventes − déductions accordées − pertes sur créances − frais directs de vente. Une valeur par année."},
-  mb = {"Marge brute de chaque année", "Marge brute = CAN − PRAMV. Vide = taux de marge brute non calculé."},
-  ebit = {"EBIT de chaque année", "EBIT = bénéfice net + impôts + charges financières − produits financiers. Vide = ignoré."},
-  bn = {"Bénéfice net de chaque année", "Dernière ligne du compte de résultat. Vide = ignoré."},
-  eff = {"Effectif (employés) de chaque année", "Sert au CA par employé = CAN ÷ effectif. Vide = ignoré."},
-  m2 = {"Surface de vente (m²) de chaque année", "Sert au CA au m² = CAN ÷ surface. Vide = ignoré."},
+  {"ca", "CA net", "CA net = ventes − déductions accordées − pertes sur créances − frais directs de vente."},
+  {"mb", "marge brute", "Marge brute = CAN − PRAMV. Vide = taux de marge brute non calculé."},
+  {"ebit", "EBIT", "EBIT = bénéfice net + impôts + charges financières − produits financiers. Vide = ignoré."},
+  {"bn", "bénéfice net", "Dernière ligne du compte de résultat. Vide = ignoré."},
+  {"eff", "effectif (employés)", "Sert au CA par employé = CAN ÷ effectif. Vide = ignoré."},
+  {"m2", "surface de vente (m²)", "Sert au CA au m² = CAN ÷ surface. Vide = ignoré."},
 }
 function F.qCles()
-  local ch = {}
+  local d = {}
   for seg in DEF_CLES:gmatch("[^;]+") do
     local k, val = seg:match("^%s*(%w+)%s*=%s*(.-)%s*$")
-    if k and AIDE_CLES[k] then
-      table.insert(ch, {cle = k, lib = AIDE_CLES[k][1], defaut = val, texte = true, aide = AIDE_CLES[k][2], opt = k ~= "an" and k ~= "ca",
-        valider = k ~= "an" and function(t)
-          for x in t:gmatch("%S+") do if COMMUN.num(x) == nil then return "« " .. x .. " » n'est pas un nombre : une valeur par année, séparées par des espaces." end end
-        end or nil})
-    end
+    if k then d[k] = {}; for x in val:gmatch("%S+") do table.insert(d[k], x) end end
   end
-  COMMUN.questionnaire("Chiffres clés", ch, function(_, _, rep)
-    local t = {}
-    for k, c in ipairs(ch) do if rep[k] ~= "" then table.insert(t, c.cle .. "=" .. rep[k]) end end
+  COMMUN.questionnaire("Chiffres clés", COMMUN.repeter({
+    {groupe = "Année", n = {cle = "na", lib = "Combien d'années ?", defaut = tostring(#(d.an or {})), max = 8,
+        aide = "Années du tableau de l'énoncé (51.21 Medica : 4). Pour chaque année : nom, puis chaque chiffre."},
+      champs = function(j)
+        local l = {{cle = "an", lib = "nom (ex. 2024)", defaut = d.an and d.an[j] or "", texte = true, aide = "Nom court de l'année : en-tête de colonne."}}
+        for _, c in ipairs(AIDE_CLES) do
+          l[#l + 1] = {cle = c[1], lib = c[2], defaut = d[c[1]] and d[c[1]][j] or "", aide = c[3], opt = c[1] ~= "ca"}
+        end
+        return l
+      end},
+  }), function(v)
+    local n = COMMUN.entier(v.na, 0)
+    local an = {}
+    for j = 1, n do local s = (v._txt["an_" .. j] or ""):gsub("%s", ""); an[j] = s ~= "" and s or tostring(j) end
+    local t = {"an=" .. table.concat(an, " ")}
+    for _, c in ipairs(AIDE_CLES) do
+      local l, rien = {}, true
+      for j = 1, n do local s = (v._txt[c[1] .. "_" .. j] or ""):gsub("%s", ""); if s ~= "" then rien = false end; l[j] = s ~= "" and s or "-" end
+      if not rien then table.insert(t, c[1] .. "=" .. table.concat(l, " ")) end
+    end
     F.cles(table.concat(t, ";"))
   end)
 end

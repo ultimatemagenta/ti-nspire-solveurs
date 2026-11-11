@@ -47,7 +47,8 @@ local function exprTexte(s)
   return (s:gsub("^%s+", ""))
 end
 
--- formulaire en une ligne « clé=valeur ; clé=valeur » (saisie éclair, et arguments des solveurs dans les tests)
+-- texte interne « clé=valeur;… » -> valeurs (arguments des solveurs dans les tests, et reconstruit par les questionnaires).
+-- Plus de saisie sur une ligne pour l'utilisateur : une donnée = un champ (COMMUN.questionnaire / COMMUN.repeter).
 -- champs : {{cle="ca", lib="Chiffre d'affaires", defaut="1000000"}, …} ; v._txt[cle] garde le texte saisi (composition)
 local function lireChamps(txt, champs)
   local v = {_txt = {}}
@@ -62,44 +63,42 @@ local function lireChamps(txt, champs)
   return v
 end
 
-local function aideChamps(champs)
-  local t = {}
-  for _, c in ipairs(champs) do table.insert(t, c.cle .. " = " .. c.lib) end
-  return table.concat(t, " ; ")
-end
-
--- demande un formulaire : une ligne pre-remplie avec les valeurs par defaut, modifiable
-local function formulaire(titre, champs, suite)
-  local pre = {}
-  for _, c in ipairs(champs) do table.insert(pre, c.cle .. "=" .. (c.defaut or "")) end
-  demander(titre, function(txt) suite(lireChamps(txt, champs), txt) end, table.concat(pre, ";"),
-    {aide = aideChamps(champs), note = "Modifier les valeurs après « = » ; ENTER : calculer."})
-end
-
 -- questionnaire guide : une question par champ, pre-remplie avec la valeur par defaut.
 -- champs : {{cle = "liq", lib = "Liquidités", defaut = "35+30", aide = "Liquidités = caisse + poste + banque …",
 --            opt = true (vide = ignoré), texte = true (pas un nombre : nom…), valider = function(s) return msgErreur end}, …}
+--   ou une fonction(val) -> liste de champs (questionnaire dynamique, voir COMMUN.repeter) : val[cle] = texte déjà saisi.
 -- Touches : ENTER garde la valeur ; « < » (seul ou en fin de saisie) revient à la question précédente ;
 -- « ! » valide tout le reste par défaut ; champ vide (ou « - ») = ignoré.
--- suite(v, brut, rep) : v = valeurs numériques (v._txt = textes saisis), brut = « cle=texte;… » (comme formulaire), rep = textes par rang
+-- suite(v, brut, rep) : v = valeurs numériques (v._txt = textes saisis), brut = « cle=texte;… », rep = textes par rang
 local NOTE_Q = "ENTER : garder · < : question précédente · ! : tout le reste par défaut · esc : annuler"
 local function questionnaire(titre, champs, suite)
-  local rep = {}
-  for i, c in ipairs(champs) do rep[i] = c.defaut ~= nil and tostring(c.defaut) or "" end
+  local dyn = type(champs) == "function"
+  local val = {}
+  local liste = dyn and champs(val) or champs
+  local function texte(c)
+    local s = val[c.cle]
+    if s == nil then s = c.defaut ~= nil and tostring(c.defaut) or "" end
+    return s
+  end
   local i, erreur = 1, nil
   local poser
   local function fin()
-    local v, parts = {_txt = {}}, {}
-    for k, c in ipairs(champs) do
-      local s = rep[k]
+    local v, parts, rep = {_txt = {}}, {}, {}
+    for k, c in ipairs(liste) do
+      local s = texte(c)
+      rep[k] = s
       v._txt[c.cle] = s
       if c.texte then v[c.cle] = s ~= "" and s or nil else v[c.cle] = num(s) end
       table.insert(parts, c.cle .. "=" .. s)
     end
     suite(v, table.concat(parts, ";"), rep)
   end
+  local function noter(c, s)
+    val[c.cle] = s
+    if dyn then liste = champs(val) end
+  end
   poser = function()
-    local c = champs[i]
+    local c = liste[i]
     local note = NOTE_Q .. ((c.opt or c.defaut == nil or c.defaut == "") and " · vide : ignoré" or "")
     demander(c.lib, function(txt)
       local t = tostring(txt or ""):gsub("^%s+", ""):gsub("%s+$", "")
@@ -108,7 +107,7 @@ local function questionnaire(titre, champs, suite)
       if cmd == "<" then i = math.max(1, i - 1); return poser() end
       if cmd == "!" then
         local reste = t:sub(1, -2):gsub("%s+$", "")
-        if reste ~= "" then rep[i] = reste end
+        if reste ~= "" then noter(c, reste) end
         return fin()
       end
       if t == "-" then t = "" end
@@ -120,13 +119,68 @@ local function questionnaire(titre, champs, suite)
         erreur = c.valider(t)
         if erreur then return poser() end
       end
-      rep[i] = t
+      noter(c, t)
       i = i + 1
-      if i > #champs then fin() else poser() end
-    end, rep[i], {titre = titre .. "  " .. i .. "/" .. #champs, aide = c.aide, erreur = erreur, note = note, vide = true,
+      if i > #liste then fin() else poser() end
+    end, texte(c), {titre = titre .. "  " .. i .. "/" .. #liste, aide = c.aide, erreur = erreur, note = note, vide = true,
       pied = "enter : ok   < : précédente   ! : fin   esc : annuler"})
   end
-  if #champs == 0 then fin() else poser() end
+  if #liste == 0 then fin() else poser() end
+end
+
+-- questionnaire « N éléments × champs » (une donnée = un champ) : segments = champs simples et groupes, dans l'ordre.
+-- Groupe : {groupe = "Compte", n = {cle = "n", lib = "Combien de comptes ?", defaut = "4", max = 12, min = 1, aide = "…"},
+--           champs = function(j, val) return {{cle = "nom", lib = "nom", defaut = "…", texte = true}, …} end}
+--   (ou nombre = function(val) return n end à la place de n : nombre tiré des réponses précédentes, sans question ;
+--    brut = true : libellés des champs gardés tels quels, sans « Compte 2/4 — »).
+-- Chaque champ d'élément devient cle_j, posé « Compte 2/4 — nom » ; la question « Combien » se repose si on y revient avec <.
+local function entier(s, def) local x = num(s); if not x then return def end; return math.floor(x + 0.5) end
+local function repeter(segments)
+  return function(val)
+    local l = {}
+    for _, s in ipairs(segments) do
+      if s.groupe then
+        local n
+        if s.n then
+          local q, mn, mx = s.n, s.n.min or 1, s.n.max or 12
+          table.insert(l, {cle = q.cle, lib = q.lib, defaut = q.defaut, aide = q.aide, valider = function(t)
+            local x = num(t)
+            if not x or x ~= math.floor(x) or x < mn or x > mx then return "Entrer un nombre entier de " .. mn .. " à " .. mx .. "." end
+          end})
+          local brut = val[q.cle]; if brut == nil then brut = q.defaut end
+          n = math.max(mn, math.min(mx, entier(brut, mn)))
+        else n = s.nombre(val) end
+        for j = 1, n do
+          for _, c in ipairs(s.champs(j, val)) do
+            local cc = {}
+            for k, x in pairs(c) do cc[k] = x end
+            cc.cle = c.cle .. "_" .. j
+            cc.lib = s.brut and c.lib or (s.groupe .. " " .. (c.rang or (j .. "/" .. n)) .. " — " .. c.lib)
+            table.insert(l, cc)
+          end
+        end
+      else table.insert(l, s) end
+    end
+    return l
+  end
+end
+-- lecture d'un questionnaire « repeter » : valeur saisie (ou défaut) d'une clé, et nombre d'éléments d'un groupe
+local function lu(val, cle, defaut) local s = val[cle]; if s == nil then s = defaut end; return s end
+-- éléments 1..n d'un groupe après le questionnaire : {{cle = texte saisi, …}, …} (v = 1er argument de suite)
+local function elements(v, n, cles)
+  local out = {}
+  for j = 1, n or 0 do
+    local e = {}
+    for _, k in ipairs(cles) do e[k] = v._txt[k .. "_" .. j] or "" end
+    out[j] = e
+  end
+  return out
+end
+-- « 2/3 » -> « (2/3) » : une valeur qui contient un séparateur de la ligne interne reste d'un seul tenant
+local function bloc(s, seps)
+  s = tostring(s or "")
+  if s:find("[" .. (seps or "/;,") .. "]") then return "(" .. s .. ")" end
+  return s
 end
 
 -- ligne de calcul « formule ; application numerique ; resultat » (texte simple, pas de CAS)
@@ -149,6 +203,6 @@ end
 
 -- rend les helpers visibles aux modules suivants
 COMMUN = {num = num, pct = pct, dec2 = dec2, montant = montant, estExpr = estExpr, exprTexte = exprTexte,
-  lireChamps = lireChamps, formulaire = formulaire, questionnaire = questionnaire, calc = calc, commentaire = commentaire,
-  aideChamps = aideChamps, sousMenu = sousMenu}
+  lireChamps = lireChamps, questionnaire = questionnaire, repeter = repeter, lu = lu, entier = entier, elements = elements, bloc = bloc, calc = calc, commentaire = commentaire,
+  sousMenu = sousMenu}
 end

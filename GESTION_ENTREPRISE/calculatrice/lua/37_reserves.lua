@@ -86,7 +86,7 @@ do
   local function pc(x) if not x then return "?" end; return string.format("%g %%", arr(x * 100)) end
   local function sens(v) if arr(v) > 0 then return "augmentation = constitution" elseif arr(v) < 0 then return "diminution = dissolution" end; return "aucune variation" end
 
-  -- formulaire « cle=valeur;… » evalue par l'evaluateur maison ; « ? » = inconnue (nil)
+  -- parametres « cle=valeur;… » (arguments des solveurs, reconstruits par les questionnaires) ; « ? » ou vide = inconnue (nil)
   local function lireParams(txt, champs)
     local v = {}
     for _, c in ipairs(champs) do v[c.cle] = evaluer(c.defaut) end
@@ -96,12 +96,6 @@ do
     end
     return v
   end
-  local function formu(titre, champs, suite)
-    local pre = {}
-    for _, c in ipairs(champs) do table.insert(pre, c.cle .. "=" .. (c.defaut or "")) end
-    demander(titre .. " (" .. COMMUN.aideChamps(champs) .. ")", function(txt) suite(txt) end, table.concat(pre, ";"))
-  end
-
   -- coupe au niveau 0 des parentheses
   local function couperA(s, sep)
     local out, prof, cur = {}, 0, ""
@@ -252,7 +246,7 @@ do
 
   ---------------------------------------------------------------- A2 tableau des RL -> benefice reel, FP reels
   local DEF_TAB = "Ducroire:15/10/?/400*5%/12/?/?;Titres:100/130/105/120;Stock@2/3:?/210/?/150/?/?/?;Installations:175/?/35/155/?/?/10"
-  local CH_TAB = {{cle = "bn", lib = "bénéfice publié", defaut = "500"}, {cle = "fp", lib = "fonds propres publiés", defaut = "1500"}}
+  local CH_TAB = {{cle = "bn", lib = "Bénéfice publié", defaut = "500", aide = "Bénéfice publié de l'exercice (CR externe). Bénéfice réel = publié + variation des RL."}, {cle = "fp", lib = "Fonds propres publiés", defaut = "1500", aide = "Fonds propres publiés au 31.12 (bilan externe). FP réels = publiés + RL finales. Vide = non demandé."}}
   local function rlTableau(lignes, params)
     local rows = lignesRL(lignes or DEF_TAB)
     local p = lireParams(params, CH_TAB)
@@ -318,9 +312,9 @@ do
   SOLVEURS.fondsPropres = fondsPropres
 
   ---------------------------------------------------------------- A1 resultat reel depuis un seul poste
-  local CH_UN = {{cle = "reel", lib = "valeur réelle 31.12", defaut = "420"}, {cle = "bilan", lib = "valeur au bilan 31.12", defaut = "300"},
-    {cle = "rli", lib = "RL au 01.01", defaut = "160"}, {cle = "res", lib = "résultat publié (perte < 0)", defaut = "-40"},
-    {cle = "vise", lib = "résultat à publier (b, c)", defaut = "?"}}
+  local CH_UN = {{cle = "reel", lib = "Valeur réelle 31.12", defaut = "420", aide = "Valeur réelle (interne) du poste au 31.12."}, {cle = "bilan", lib = "Valeur au bilan 31.12", defaut = "300", aide = "Valeur comptable publiée au 31.12. RL finale = réelle − comptable."},
+    {cle = "rli", lib = "RL au 01.01", defaut = "160", aide = "RL du poste au 1.1 (donnée par l'énoncé)."}, {cle = "res", lib = "Résultat publié (perte < 0)", defaut = "-40", aide = "Résultat publié (bénéfice ; perte en négatif). Réel = publié + variation des RL."},
+    {cle = "vise", lib = "Résultat à publier (b, c)", defaut = "?", aide = "Résultat que l'on veut publier (questions b, c). Vide = non demandé."}}
   local function rlUnPoste(params)
     local p = lireParams(params, CH_UN)
     local rlf = p.reel - p.bilan
@@ -355,11 +349,11 @@ do
   SOLVEURS.rlUnPoste = rlUnPoste
 
   ---------------------------------------------------------------- A3 ducroire
-  local CH_DUC = {{cle = "cli", lib = "créances clients 01.01", defaut = "140000"}, {cle = "clf", lib = "créances clients 31.12", defaut = "160000"},
-    {cle = "afci", lib = "créances AFC 01.01", defaut = "4000"}, {cle = "afcf", lib = "créances AFC 31.12", defaut = "6000"},
-    {cle = "taux", lib = "taux du ducroire", defaut = "5%"}, {cle = "rri", lib = "risque réel 01.01 (montant ou %)", defaut = "5000"},
-    {cle = "rrf", lib = "risque réel 31.12", defaut = "3000"}, {cle = "res", lib = "résultat publié", defaut = "-2000"},
-    {cle = "vci", lib = "ducroire comptable 01.01 si donné", defaut = "?"}, {cle = "vcf", lib = "ducroire comptable 31.12 si donné", defaut = "?"}}
+  local CH_DUC = {{cle = "cli", lib = "Créances clients 01.01", defaut = "140000", aide = "Créances clients au bilan du 1.1."}, {cle = "clf", lib = "Créances clients 31.12", defaut = "160000", aide = "Créances clients au bilan du 31.12."},
+    {cle = "afci", lib = "Créances AFC 01.01", defaut = "4000", aide = "Créances AFC (impôt anticipé) au 1.1 : sans ducroire. 0 si aucune."}, {cle = "afcf", lib = "Créances AFC 31.12", defaut = "6000", aide = "Créances AFC au 31.12 : sans ducroire. 0 si aucune."},
+    {cle = "taux", lib = "Taux du ducroire", defaut = "5%", aide = "Taux du ducroire comptabilisé sur les créances clients (ex. 5%)."}, {cle = "rri", lib = "Risque réel 01.01 (montant ou %)", defaut = "5000", aide = "Risque réel de perte au 1.1 : montant, ou % des créances clients."},
+    {cle = "rrf", lib = "Risque réel 31.12", defaut = "3000", aide = "Risque réel de perte au 31.12 : montant, ou % des créances clients."}, {cle = "res", lib = "Résultat publié", defaut = "-2000", aide = "Résultat publié de l'exercice (perte en négatif)."},
+    {cle = "vci", lib = "Ducroire comptable 01.01 si donné", defaut = "?", aide = "Ducroire comptable au 1.1 s'il est donné ; vide = taux × créances clients."}, {cle = "vcf", lib = "Ducroire comptable 31.12 si donné", defaut = "?", aide = "Ducroire comptable au 31.12 s'il est donné ; vide = taux × créances clients."}}
   local function ducroire(params)
     local p = lireParams(params, CH_DUC)
     vider()
@@ -391,10 +385,10 @@ do
   SOLVEURS.ducroire = ducroire
 
   ---------------------------------------------------------------- A4 stock a une fraction, PRAMV reel et comptable
-  local CH_SF = {{cle = "vci", lib = "stock comptable 01.01", defaut = "400000"}, {cle = "vri", lib = "stock réel 01.01", defaut = "?"},
-    {cle = "vcf", lib = "stock comptable 31.12", defaut = "?"}, {cle = "vrf", lib = "stock réel 31.12", defaut = "750000"},
-    {cle = "fr", lib = "comptable / réel", defaut = "2/3"}, {cle = "ca", lib = "chiffre d'affaires", defaut = "2000000"},
-    {cle = "achats", lib = "achats", defaut = "1600000"}, {cle = "autres", lib = "autres charges", defaut = "380000"}}
+  local CH_SF = {{cle = "vci", lib = "Stock comptable 01.01", defaut = "400000", aide = "Stock au bilan (valeur comptable) au 1.1."}, {cle = "vri", lib = "Stock réel 01.01", defaut = "?", aide = "Valeur réelle du stock au 1.1 ; vide = comptable ÷ fraction."},
+    {cle = "vcf", lib = "Stock comptable 31.12", defaut = "?", aide = "Stock au bilan au 31.12 ; vide = réel × fraction."}, {cle = "vrf", lib = "Stock réel 31.12", defaut = "750000", aide = "Valeur réelle (PRA) du stock au 31.12."},
+    {cle = "fr", lib = "Comptable / réel", defaut = "2/3", aide = "Fraction comptable ÷ réel : stock « aux 2/3 » de sa valeur → 2/3."}, {cle = "ca", lib = "Chiffre d'affaires", defaut = "2000000", aide = "Chiffre d'affaires de l'exercice (CR)."},
+    {cle = "achats", lib = "Achats", defaut = "1600000", aide = "Achats de marchandises de l'exercice (CR)."}, {cle = "autres", lib = "Autres charges", defaut = "380000", aide = "Autres charges de l'exercice (CR)."}}
   local function stockFraction(params)
     local p = lireParams(params, CH_SF)
     local L = {nom = "Stock", vci = p.vci, vri = p.vri, vcf = p.vcf, vrf = p.vrf, frac = p.fr, fracTxt = string.format("%.4g", p.fr)}
@@ -426,9 +420,9 @@ do
   SOLVEURS.stockFraction = stockFraction
 
   ---------------------------------------------------------------- A5 stock externe / interne -> PRAMV et MB
-  local CH_EI = {{cle = "sie", lib = "stock initial externe", defaut = "60000"}, {cle = "sii", lib = "stock initial interne", defaut = "90000"},
-    {cle = "sfe", lib = "stock final externe", defaut = "40000"}, {cle = "sfi", lib = "stock final interne", defaut = "60000"},
-    {cle = "prama", lib = "PRAMA", defaut = "400000"}, {cle = "can", lib = "CAN", defaut = "600000"}}
+  local CH_EI = {{cle = "sie", lib = "Stock initial externe", defaut = "60000", aide = "Stock initial au bilan publié (externe)."}, {cle = "sii", lib = "Stock initial interne", defaut = "90000", aide = "Stock initial au bilan interne (valeur réelle)."},
+    {cle = "sfe", lib = "Stock final externe", defaut = "40000", aide = "Stock final au bilan publié (externe)."}, {cle = "sfi", lib = "Stock final interne", defaut = "60000", aide = "Stock final au bilan interne (valeur réelle)."},
+    {cle = "prama", lib = "PRAMA", defaut = "400000", aide = "Prix de revient d'achat des marchandises achetées (achats nets)."}, {cle = "can", lib = "CAN", defaut = "600000", aide = "Chiffre d'affaires net de l'exercice."}}
   local function stockExtInt(params)
     local p = lireParams(params, CH_EI)
     vider()
@@ -521,9 +515,9 @@ do
   SOLVEURS.titres = titres
 
   ---------------------------------------------------------------- A8 cout d'acquisition, amortissement prudent
-  local CH_CA = {{cle = "prix", lib = "prix d'achat", defaut = "800000"}, {cle = "transport", lib = "frais de transport", defaut = "10000"},
-    {cle = "install", lib = "frais d'installation", defaut = "40000"}, {cle = "remise", lib = "remise (% du prix ou montant)", defaut = "10%"},
-    {cle = "autres", lib = "autres frais", defaut = "0"}, {cle = "duree", lib = "durée de vie la plus courte (ans)", defaut = "4"}}
+  local CH_CA = {{cle = "prix", lib = "Prix d'achat", defaut = "800000", aide = "Prix d'achat facturé de l'objet."}, {cle = "transport", lib = "Frais de transport", defaut = "10000", aide = "Frais de transport jusqu'au lieu d'utilisation : font partie du coût d'acquisition."},
+    {cle = "install", lib = "Frais d'installation", defaut = "40000", aide = "Frais d'installation, de montage : coût d'acquisition."}, {cle = "remise", lib = "Remise (% du prix ou montant)", defaut = "10%", aide = "Remise obtenue, en % du prix (10%) ou en CHF : se déduit."},
+    {cle = "autres", lib = "Autres frais", defaut = "0", aide = "Autres frais directement liés à l'acquisition (douane…) ; 0 si aucun."}, {cle = "duree", lib = "Durée de vie la plus courte (ans)", defaut = "4", aide = "Durée de vie la plus courte des estimations : taux d'amortissement le plus prudent."}}
   local function coutAcq(params)
     local p = lireParams(params, CH_CA)
     local rem = p.remise
@@ -555,9 +549,9 @@ do
   SOLVEURS.coutAcq = coutAcq
 
   ---------------------------------------------------------------- A9 reprise fiscale sur stock
-  local CH_RF = {{cle = "rli", lib = "RL au 01.01", defaut = "45200"}, {cle = "vc", lib = "stock au bilan 31.12", defaut = "77800"},
-    {cle = "vr", lib = "stock au PRA (réel) 31.12", defaut = "136500"}, {cle = "part", lib = "part admise par le fisc", defaut = "1/3"},
-    {cle = "bn", lib = "bénéfice comptable", defaut = "57900"}}
+  local CH_RF = {{cle = "rli", lib = "RL au 01.01", defaut = "45200", aide = "RL sur le stock au 1.1."}, {cle = "vc", lib = "Stock au bilan 31.12", defaut = "77800", aide = "Stock au bilan (valeur comptable) au 31.12."},
+    {cle = "vr", lib = "Stock au PRA (réel) 31.12", defaut = "136500", aide = "Valeur réelle du stock au PRA au 31.12. RL finale = réel − comptable."}, {cle = "part", lib = "Part admise par le fisc", defaut = "1/3", aide = "Part du PRA que le fisc admet en RL sur le stock (1/3)."},
+    {cle = "bn", lib = "Bénéfice comptable", defaut = "57900", aide = "Bénéfice comptable publié de l'exercice."}}
   local function repriseStock(params)
     local p = lireParams(params, CH_RF)
     local rlf = p.vr - p.vc
@@ -590,7 +584,7 @@ do
 
   ---------------------------------------------------------------- reprises fiscales sur plusieurs postes (37.26, 37.25 a, 37.27 b)
   local DEF_RP = "Provisions:7000/5600;Amortissements:120000/90000;RL stock:58500/58500"
-  local CH_RP = {{cle = "bn", lib = "bénéfice comptable", defaut = "60000"}, {cle = "min", lib = "1 = bénéfice fiscal minimal", defaut = "0"}}
+  local CH_RP = {{cle = "bn", lib = "Bénéfice comptable", defaut = "60000", aide = "Bénéfice comptable publié, avant les reprises fiscales."}, {cle = "min", lib = "1 = bénéfice fiscal minimal", defaut = "0", aide = "1 = bénéfice fiscal minimal (marge encore admise déduite, 37.25 a) ; 0 sinon."}}
   local function reprises(lignes, params)
     local ls = lireLignes(lignes or DEF_RP)
     local p = lireParams(params, CH_RP)
@@ -625,7 +619,7 @@ do
   ---------------------------------------------------------------- A10 bilans sur plusieurs annees
   local DEF_PA = "Stock:749000/1070000/861000/1230000/1024000/1536000;Immobilisations:900000/900000/750000/800000/600000/700000;" ..
     "Ducroire:21000/18000/21000/20700/23500/23280;BN:598000/687000"
-  local CH_PA = {{cle = "an", lib = "année de la 1re date", defaut = "2011"}}
+  local CH_PA = {{cle = "an", lib = "Année de la 1re date", defaut = "2011", aide = "Année de la première date (31.12 de la 1re colonne), ex. 2011."}}
   local function plusieursAnnees(lignes, params)
     local ls = lireLignes(lignes or DEF_PA)
     local p = lireParams(params, CH_PA)
@@ -679,11 +673,11 @@ do
   SOLVEURS.plusieursAnnees = plusieursAnnees
 
   ---------------------------------------------------------------- A12 dissolution des RL : ecritures, CR externe / interne
-  local CH_DI = {{cle = "rld", lib = "RL ducroire", defaut = "12"}, {cle = "rls", lib = "RL stock", defaut = "20"},
-    {cle = "rli", lib = "RL immobilisation", defaut = "20"}, {cle = "ventes", lib = "produit des ventes", defaut = "1400"},
-    {cle = "pertes", lib = "pertes sur créances", defaut = "16"}, {cle = "march", lib = "charges de marchandises", defaut = "840"},
-    {cle = "pers", lib = "charges de personnel", defaut = "320"}, {cle = "amort", lib = "amortissements", defaut = "120"},
-    {cle = "autres", lib = "autres charges", defaut = "0"}}
+  local CH_DI = {{cle = "rld", lib = "RL ducroire", defaut = "12", aide = "RL dissoute sur le ducroire (montant)."}, {cle = "rls", lib = "RL stock", defaut = "20", aide = "RL dissoute sur le stock (montant)."},
+    {cle = "rli", lib = "RL immobilisation", defaut = "20", aide = "RL dissoute sur une immobilisation (montant)."}, {cle = "ventes", lib = "Produit des ventes", defaut = "1400", aide = "Produit des ventes (CR externe)."},
+    {cle = "pertes", lib = "Pertes sur créances", defaut = "16", aide = "Pertes sur créances (CR externe)."}, {cle = "march", lib = "Charges de marchandises", defaut = "840", aide = "Charges de marchandises (CR externe)."},
+    {cle = "pers", lib = "Charges de personnel", defaut = "320", aide = "Charges de personnel (CR externe)."}, {cle = "amort", lib = "Amortissements", defaut = "120", aide = "Amortissements (CR externe)."},
+    {cle = "autres", lib = "Autres charges", defaut = "0", aide = "Autres charges (0 si aucune)."}}
   local function dissolution(params)
     local p = lireParams(params, CH_DI)
     local d, s, i = p.rld or 0, p.rls or 0, p.rli or 0
@@ -1000,69 +994,298 @@ do
   end
   SOLVEURS.repartition = repartition
 
-  ---------------------------------------------------------------- menu
-  local function viaLignes(titre, defaut, suite)
-    return function() demander(titre, function(t) suite(t) end, defaut) end
+  ---------------------------------------------------------------- menu : une question par donnée (COMMUN.questionnaire)
+  -- Les solveurs gardent leur format interne (« cle=valeur;… », « Nom:v1/v2… », « a1=nom=montant ») pour les tests :
+  -- chaque questionnaire le reconstruit à partir des réponses. Valeurs : nombres, calculs (400*5%, 2/3, min(a,b)) ; vide = inconnue.
+  local Q, lu, entier = COMMUN.questionnaire, COMMUN.lu, COMMUN.entier
+  local function validerVal(t)
+    if t ~= "" and t ~= "?" and evaluer(t) == nil then return "« " .. t .. " » : nombre ou calcul attendu (12500, 400*5%, 2/3, min(a,b))." end
   end
-  local function quest(titre, champs, fn) return function() COMMUN.questionnaire(titre, champs, function(_, brut) fn(brut) end) end end
+  local function propre(s) return (tostring(s or ""):gsub("[:;/=]", " "):gsub("^%s+", ""):gsub("%s+$", "")) end
+  -- valeur d'une ligne « Nom:v1/v2… » : vide -> « ? », calcul avec « / » ou « ; » entre parenthèses
+  local function cell(s)
+    s = tostring(s or ""):gsub("%s", "")
+    if s == "" then return "?" end
+    return COMMUN.bloc(s, "/;")
+  end
+  -- champs « cle=valeur » d'une table CH_xx : « ? » par défaut = champ facultatif vide
+  local function champsP(champs)
+    local l = {}
+    for _, c in ipairs(champs) do
+      local d = c.defaut == "?" and "" or c.defaut
+      table.insert(l, {cle = c.cle, lib = c.lib, defaut = d, aide = c.aide, texte = true, valider = validerVal, opt = d == "" or nil})
+    end
+    return l
+  end
+  local function texteP(v, champs)
+    local t = {}
+    for _, c in ipairs(champs) do t[#t + 1] = c.cle .. "=" .. (v._txt[c.cle] or "") end
+    return table.concat(t, ";")
+  end
+  local function qp(titre, champs, fn) return function() Q(titre, champsP(champs), function(v) fn(texteP(v, champs)) end) end end
+  -- groupe « Combien de … ? » puis, pour chaque élément : nom et valeurs (cols = {{lib, aide[, texte, valider]}, …})
+  -- defauts = lireLignes(DEF) ; colonne k -> clé « c<k> » ; ligne interne « Nom:v1/v2/… »
+  local function grpLignes(groupe, nlib, naide, defauts, cols, nomLib, nomAide, max, cle)
+    return {groupe = groupe, n = {cle = cle or "n", lib = nlib, defaut = tostring(#defauts), max = max or 12, aide = naide},
+      champs = function(j)
+        local d = defauts[j] or {nom = "", brut = {}}
+        local l = {{cle = "nom", lib = nomLib or "nom", defaut = d.nom, texte = true, aide = nomAide}}
+        for k, c in ipairs(cols) do
+          local x = d.brut[k] or ""
+          if x == "?" then x = "" end
+          l[#l + 1] = {cle = "c" .. k, lib = c[1], defaut = x, aide = c[2], texte = true, opt = not c[3] or nil, valider = c[4] or validerVal}
+        end
+        return l
+      end}
+  end
+  -- lignes internes ; obligatoires = colonnes sans « ? » possible (vide -> 0) ; élément entièrement vide = ignoré
+  local function texteLignes(v, n, ncol, obligatoires, nomDe)
+    local t = {}
+    for j = 1, n do
+      local vals, vide = {}, true
+      for k = 1, ncol do
+        local x = v._txt["c" .. k .. "_" .. j] or ""
+        if x ~= "" then vide = false end
+        vals[k] = (x == "" and obligatoires) and "0" or cell(x)
+      end
+      local nom = propre(v._txt["nom_" .. j])
+      if nom ~= "" then vide = false end
+      if nom == "" then nom = "L" .. j end
+      if not vide then t[#t + 1] = (nomDe and nomDe(nom, j) or nom) .. ":" .. table.concat(vals, "/") end
+    end
+    return table.concat(t, ";")
+  end
+
+  -- tableau des RL : par compte, nom, fraction éventuelle, puis les 7 cases du tableau du prof
+  local COLS_RL = {
+    {"valeur comptable au 1.1", "VC du bilan initial (publié). Vide = inconnue (déduite des autres cases)."},
+    {"valeur réelle au 1.1", "VR du bilan initial. RL = VR − VC. Vide = inconnue."},
+    {"RL au 1.1", "Réserve latente initiale = VR − VC (souvent à calculer : vide)."},
+    {"valeur comptable au 31.12", "VC du bilan final (publié), ex. ducroire 400*5%. Vide = inconnue."},
+    {"valeur réelle au 31.12", "VR du bilan final. Vide = inconnue."},
+    {"RL au 31.12", "Réserve latente finale = VR − VC (souvent à calculer : vide)."},
+    {"variation des RL", "RL finale − RL initiale (+ constitution, − dissolution). Vide = à calculer."},
+  }
+  local function qTableau()
+    local defs = {}
+    for _, l in ipairs(lireLignes(DEF_TAB)) do
+      local nom, fr = l.nom:match("^(.-)%s*@%s*(.+)$")
+      local b = l.brut
+      if #b == 4 then b = {b[1], b[2], "?", b[3], b[4], "?", "?"} end
+      defs[#defs + 1] = {nom = nom or l.nom, fr = fr or "", brut = b}
+    end
+    local g = grpLignes("Compte", "Combien de comptes (lignes du tableau) ?", "Postes avec une RL (test 2025 ex. 7 : 4). Passifs (ducroire, provision) : saisir les montants en positif.",
+      defs, COLS_RL, "nom", "Nom du compte ; ducroire, provision → passif (montants négatifs dans le tableau).")
+    local base = g.champs
+    g.champs = function(j)
+      local l = base(j)
+      table.insert(l, 2, {cle = "fr", lib = "stock à une fraction (ex. 2/3)", defaut = defs[j] and defs[j].fr or "", texte = true, opt = true,
+        valider = validerVal, aide = "Stock évalué « aux 2/3 » de sa valeur réelle : 2/3 (VC = 2/3 × VR). Vide sinon."})
+      return l
+    end
+    local segs = {g}
+    for _, c in ipairs(champsP(CH_TAB)) do segs[#segs + 1] = c end
+    Q("Tableau des RL", COMMUN.repeter(segs), function(v)
+      local lignes = texteLignes(v, entier(v.n, 0), 7, nil, function(nom, j)
+        local fr = (v._txt["fr_" .. j] or ""):gsub("%s", "")
+        return fr ~= "" and (nom .. "@" .. fr) or nom
+      end)
+      rlTableau(lignes, texteP(v, CH_TAB))
+    end)
+  end
+
+  local function qFondsPropres()
+    local cols = {
+      {"FP comptables au 1.1", "Fonds propres publiés au début de l'exercice. Vide = à compléter."},
+      {"FP réels au 1.1", "Fonds propres réels au début. Vide = à compléter."},
+      {"RL au 1.1", "RL = FP réels − FP comptables. Vide = à compléter."},
+      {"FP comptables au 31.12", "Fonds propres publiés à la fin. Vide = à compléter."},
+      {"FP réels au 31.12", "Fonds propres réels à la fin. Vide = à compléter."},
+      {"RL au 31.12", "RL finale. Vide = à compléter."},
+      {"variation des RL", "RL finale − RL initiale. Vide = à compléter."},
+    }
+    Q("Fonds propres (37.22)", COMMUN.repeter({grpLignes("Exercice", "Combien d'exercices (lignes) ?", "Lignes du tableau des fonds propres (37.22 : 2012, 2013, 2014).",
+      lireLignes(DEF_FP), cols, "année", "Nom de la ligne (année de l'exercice).", 8)}),
+      function(v) fondsPropres(texteLignes(v, entier(v.n, 0), 7)) end)
+  end
+
+  local function qStockMax()
+    local cols = {
+      {"quantité", "Nombre d'articles en stock à l'inventaire.", true},
+      {"PRA unitaire", "Prix de revient d'achat d'une unité (coût).", true},
+      {"valeur vénale nette unitaire", "Prix de vente possible − frais de vente encore à engager (CO 960c).", true},
+    }
+    Q("Stock CO 960c", COMMUN.repeter({grpLignes("Article", "Combien d'articles ?", "Articles du stock, évalués un par un (test 2025 ex. 4 : 2).",
+      lireLignes(DEF_SM), cols, "nom", "Nom de l'article.", 15)}),
+      function(v) stockMax(texteLignes(v, entier(v.n, 0), 3, true)) end)
+  end
+
+  local function qTitres()
+    local cols = {
+      {"nombre de titres", "Nombre d'actions ou de titres détenus.", true},
+      {"prix d'achat unitaire", "Coût d'acquisition d'un titre.", true},
+      {"cours (valeur) au 31.12", "Cours de bourse au 31.12 (coté) ou valeur estimée (non coté).", true},
+      {"c = coté, n = non coté", "Coté (marché actif) → cours du 31.12 ; non coté → min(prix d'achat ; valeur).", true,
+        function(t) local x = t:lower(); if x ~= "c" and x ~= "n" then return "Taper c (coté) ou n (non coté)." end end},
+    }
+    local g = grpLignes("Titre", "Combien de titres ?", "Titres du portefeuille (test 2025 ex. 9 : 4).", lireLignes(DEF_TI), cols, "nom", "Nom de la société émettrice.", 12)
+    Q("Titres", COMMUN.repeter({g}), function(v)
+      local n = entier(v.n, 0)
+      for j = 1, n do v._txt["c4_" .. j] = (v._txt["c4_" .. j] or "c"):lower() end
+      titres(texteLignes(v, n, 4, true))
+    end)
+  end
+
+  local function qReprises()
+    local cols = {
+      {"montant comptabilisé", "Provision, amortissement ou RL comptabilisé dans les comptes.", true},
+      {"montant admis par le fisc", "Montant fiscalement admis ; l'excédent est repris (ajouté au bénéfice).", true},
+    }
+    local segs = {grpLignes("Poste", "Combien de postes ?", "Postes à contrôler (37.26 : provisions, amortissements, RL stock).",
+      lireLignes(DEF_RP), cols, "nom", "Nom du poste (ex. Provisions).", 10)}
+    for _, c in ipairs(champsP(CH_RP)) do segs[#segs + 1] = c end
+    Q("Reprises fiscales", COMMUN.repeter(segs), function(v) reprises(texteLignes(v, entier(v.n, 0), 2, true), texteP(v, CH_RP)) end)
+  end
+
+  -- plusieurs années : dates, postes (VC / VR à chaque date), bénéfices comptables
+  local function qPlusieurs()
+    local postes, bn = {}, {}
+    for _, l in ipairs(lireLignes(DEF_PA)) do if l.nom:upper() == "BN" then bn = l.brut else postes[#postes + 1] = l end end
+    local nd0 = 0
+    for _, P in ipairs(postes) do nd0 = math.max(nd0, math.floor(#P.brut / 2)) end
+    local function an0(val) return entier(lu(val, "an", "2011"), 1) end
+    local function nd(val) return math.max(2, math.min(6, entier(lu(val, "nd", tostring(nd0)), nd0))) end
+    local segs = champsP(CH_PA)
+    segs[#segs + 1] = {cle = "nd", lib = "Combien de dates (bilans) ?", defaut = tostring(nd0), aide = "Bilans du 31.12 de chaque année (37.25 : 3 dates, 2011 à 2013).",
+      valider = function(t) local x = COMMUN.num(t); if not x or x < 2 or x > 6 or x ~= math.floor(x) then return "Entrer un nombre entier de 2 à 6." end end}
+    segs[#segs + 1] = {groupe = "Poste", n = {cle = "np", lib = "Combien de postes ?", defaut = tostring(#postes), max = 8,
+        aide = "Postes avec une RL (stock, immobilisations, ducroire…). Ducroire : montants en positif."},
+      champs = function(j, val)
+        local P = postes[j] or {nom = "", brut = {}}
+        local l = {{cle = "nom", lib = "nom", defaut = P.nom, texte = true, aide = "Nom du poste ; ducroire, provision → passif."}}
+        for k = 1, nd(val) do
+          local a = an0(val) + k - 1
+          l[#l + 1] = {cle = "vc" .. k, lib = "VC 31.12." .. a, defaut = P.brut[2 * k - 1] or "", texte = true, valider = validerVal,
+            aide = "Valeur comptable (au bilan) au 31.12." .. a .. "."}
+          l[#l + 1] = {cle = "vr" .. k, lib = "VR 31.12." .. a, defaut = P.brut[2 * k] or "", texte = true, valider = validerVal,
+            aide = "Valeur réelle au 31.12." .. a .. " (stock : min(PRA ; prix du jour))."}
+        end
+        return l
+      end}
+    segs[#segs + 1] = {groupe = "Bénéfice", brut = true, nombre = function(val) return nd(val) - 1 end, champs = function(k, val)
+        local a = an0(val) + k
+        return {{cle = "bn", lib = "Bénéfice comptable " .. a, defaut = bn[k] or "", texte = true, opt = true, valider = validerVal,
+          aide = "Bénéfice publié de l'exercice " .. a .. " : BN réel = BN comptable + variation des RL."}}
+      end}
+    Q("Plusieurs années", COMMUN.repeter(segs), function(v)
+      local n, d = entier(v.np, 0), nd(v._txt)
+      local t = {}
+      for j = 1, n do
+        local vals = {}
+        for k = 1, d do vals[#vals + 1] = cell(v._txt["vc" .. k .. "_" .. j]); vals[#vals + 1] = cell(v._txt["vr" .. k .. "_" .. j]) end
+        local nom = propre(v._txt["nom_" .. j]); if nom == "" then nom = "Poste " .. j end
+        t[#t + 1] = nom .. ":" .. table.concat(vals, "/")
+      end
+      local b = {}
+      for k = 1, d - 1 do b[k] = cell(v._txt["bn_" .. k]) end
+      t[#t + 1] = "BN:" .. table.concat(b, "/")
+      plusieursAnnees(table.concat(t, ";"), texteP(v, CH_PA))
+    end)
+  end
+
+  -- bilans en postes (CH_BI, CH_REP) : chaque série a1…a8 « nom=montant » devient « Combien de postes ? » puis nom et montant
+  local function validerMontant(t)
+    if t ~= "" and evaluer(t) == nil and not cle(t):find("solde", 1, true) then return "Montant ou calcul attendu (ex. 219/3, 1500*5%-40, solde)." end
+  end
+  local function qPostes(titre, champs, fn)
+    local segs, series = {}, {}
+    local k = 1
+    while k <= #champs do
+      local c = champs[k]
+      local pre = c.valider == validerPoste and c.cle:match("^(%a+)1$")
+      if pre then
+        local s = {pre = pre, defs = {}, max = 0, lib = c.lib:gsub(" %d+ %(nom=montant%)$", ""), aide = c.aide}
+        while champs[k] and champs[k].cle == pre .. (s.max + 1) do
+          s.max = s.max + 1
+          local p = poste(champs[k].defaut)
+          if p then s.defs[#s.defs + 1] = p end
+          k = k + 1
+        end
+        series[#series + 1] = s
+        segs[#segs + 1] = {groupe = s.lib, n = {cle = "n" .. pre, lib = "Combien de lignes « " .. s.lib .. " » ?", defaut = tostring(#s.defs),
+            min = 0, max = s.max, aide = "Nombre de postes de cette partie (" .. s.max .. " au plus). " .. s.aide},
+          champs = function(j) local p = s.defs[j] or {nom = "", brut = ""}; return {
+            {cle = pre .. "n", lib = "nom", defaut = p.nom, texte = true, aide = "Nom du poste (ex. Stock de marchandises).",
+              valider = function(t) if t:find("[=;]") then return "Le nom ne doit contenir ni « = » ni « ; »." end end},
+            {cle = pre .. "m", lib = "montant", defaut = p.brut, texte = true, valider = validerMontant, aide = s.aide}} end}
+      else
+        segs[#segs + 1] = c
+        k = k + 1
+      end
+    end
+    Q(titre, COMMUN.repeter(segs), function(v)
+      local t = {}
+      for _, c in ipairs(segs) do if c.cle then t[#t + 1] = c.cle .. "=" .. (v._txt[c.cle] or "") end end
+      for _, s in ipairs(series) do
+        local n = entier(v["n" .. s.pre], 0)
+        for i = 1, s.max do
+          local nom, mt = v._txt[s.pre .. "n_" .. i] or "", (v._txt[s.pre .. "m_" .. i] or ""):gsub("%s", "")
+          t[#t + 1] = s.pre .. i .. "=" .. ((i <= n and nom ~= "" and mt ~= "") and (nom .. "=" .. mt) or "")
+        end
+      end
+      fn(table.concat(t, ";"))
+    end)
+  end
   local SM = COMMUN.sousMenu
   -- forts / mots / si : index de la recherche (99_menu) ; radicaux sans accents (voir CONVENTIONS-MODULES.md)
   table.insert(MENUS_COMPTA, {ordre = 37, titre = "Réserves latentes, évaluation (37)", items = {
-    {"Tableau des RL → BN, FP réels", function()
-      demander("Comptes (Nom:VCi/VRi/VCf/VRf ou 7 valeurs, ? = inconnue, Stock@2/3)", function(l)
-        formu("Bénéfice et FP publiés", CH_TAB, function(t) rlTableau(l, t) end)
-      end, DEF_TAB)
-    end, forts = "tableau rl latente fp propres", mots = "reserve benefice reel fonds interne creer poste ducroire titre stock installation variation initial final",
+    {"Tableau des RL → BN, FP réels", qTableau, forts = "tableau rl latente fp propres", mots = "reserve benefice reel fonds interne creer poste ducroire titre stock installation variation initial final",
       si = "plusieurs postes, ou fonds propres réels"},
-    {"Bénéfice réel, 1 poste", function() formu("Un poste", CH_UN, rlUnPoste) end,
+    {"Bénéfice réel, 1 poste", qp("Un poste", CH_UN, rlUnPoste),
       forts = "reel seul", mots = "resultat benefice net perte publie stock inventaire rl poste valeur",
       si = "une seule RL (un poste), RL initiale donnée"},
     SM("Ducroire, stock à une fraction", "Un poste : ducroire, stock", {
-      {"Ducroire", function() formu("Ducroire", CH_DUC, ducroire) end,
+      {"Ducroire", qp("Ducroire", CH_DUC, ducroire),
         forts = "ducroire", mots = "creance client provision risque perte reel benefice surevalue",
         si = "seul poste : le ducroire (x % des créances)"},
-      {"Stock à une fraction (PRAMV)", function() formu("Stock à une fraction", CH_SF, stockFraction) end,
+      {"Stock à une fraction (PRAMV)", qp("Stock à une fraction", CH_SF, stockFraction),
         forts = "fraction tiers 2/3 estime", mots = "stock sous evalue pramv reel benefice latente valeur",
         si = "« stock évalué aux 2/3 de sa valeur »"},
-      {"Stock externe / interne (marge)", function() formu("Stock ext./int.", CH_EI, stockExtInt) end,
+      {"Stock externe / interne (marge)", qp("Stock ext./int.", CH_EI, stockExtInt),
         forts = "externe constituee dissoute", mots = "interne stock pramv marge brute latente variation montant expliquer difference",
         si = "marge brute externe / interne, RL du stock"},
     }),
-    {"Stock : valeur maximale", viaLignes("Articles (Nom:qté/PRA/VVN)", DEF_SM, stockMax),
+    {"Stock : valeur maximale", qStockMax,
       forts = "maxim 960c venale", mots = "stock article marchandise valeur bilan figurer evaluation pra completer inventaire",
       si = "stock article par article (PRA / valeur nette)"},
-    {"Titres cotés / non cotés", viaLignes("Titres (Nom:nombre/achat/cours 31.12/c ou n)", DEF_TI, titres),
+    {"Titres cotés / non cotés", qTitres,
       forts = "titre cote action bourse", mots = "maxim valeur bilan figurer portefeuille cours",
       si = "titres : cotés au cours, non cotés au coût"},
-    {"Prix max. 1re inscription, amort.", function() formu("Coût d'acquisition", CH_CA, coutAcq) end,
+    {"Prix max. 1re inscription, amort.", qp("Coût d'acquisition", CH_CA, coutAcq),
       forts = "acquisition comptabilisation inscription prix premiere", mots = "maxim cout amortissement taux prudent terrain machine objet evaluer inscrire",
       si = "1re comptabilisation d'un actif, taux d'amort."},
     SM("Reprises fiscales", "Reprises fiscales", {
-      {"Reprise fiscale sur le stock", function() formu("Reprise fiscale", CH_RF, repriseStock) end,
+      {"Reprise fiscale sur le stock", qp("Reprise fiscale", CH_RF, repriseStock),
         forts = "fiscal fisc reprise", mots = "stock benefice admis admettre impot valeur reelle aurait",
         si = "RL sur le stock (1/3 admis), bénéfice fiscal"},
-      {"Reprises fiscales (postes)", function()
-        demander("Postes (Nom:comptabilisé/admis)", function(l) formu("Bénéfice", CH_RP, function(t) reprises(l, t) end) end, DEF_RP)
-      end, forts = "fiscal fisc reprise minimal", mots = "poste provision amortissement benefice admis admissible",
+      {"Reprises fiscales (postes)", qReprises, forts = "fiscal fisc reprise minimal", mots = "poste provision amortissement benefice admis admissible",
         si = "plusieurs postes : bénéfice fiscal minimal"},
     }),
     SM("Plusieurs années", "Plusieurs années", {
-      {"Bénéfice réel, plusieurs années", function()
-        demander("Postes (Nom:VC/VR/VC/VR… ; BN:bénéfices)", function(l) formu("Années", CH_PA, function(t) plusieursAnnees(l, t) end) end, DEF_PA)
-      end, forts = "annees exercices", mots = "plusieurs reel benefice latente",
+      {"Bénéfice réel, plusieurs années", qPlusieurs, forts = "annees exercices", mots = "plusieurs reel benefice latente",
         si = "même entreprise, BN réel de chaque année"},
-      {"Fonds propres sur 3 ans", viaLignes("Années (An:VCi/VRi/RLi/VCf/VRf/RLf/Var)", DEF_FP, fondsPropres),
+      {"Fonds propres sur 3 ans", qFondsPropres,
         forts = "capital annees", mots = "fonds propres fp tableau completer trois ans augmentation",
         si = "tableau des FP sur 3 ans, sans augm. de capital"},
     }),
     SM("Bilan interne, répartition", "Bilan interne, répartition", {
-      {"Bilan publié → bilan interne", quest("Bilan interne (37.5)", CH_BI, bilanInterne),
+      {"Bilan publié → bilan interne", function() qPostes("Bilan interne (37.5)", CH_BI, bilanInterne) end,
         forts = "interne apurement", mots = "bilan publie externe valeur rl reserve latente actif passif total etablir dresser final",
         si = "bilan publié + RL par poste → bilan interne"},
-      {"Répartition du bénéfice, RL à créer", quest("Répartition (37.15)", CH_REP, repartition),
+      {"Répartition du bénéfice, RL à créer", function() qPostes("Répartition (37.15)", CH_REP, repartition) end,
         forts = "repartition dividende tantieme necessaire", mots = "benefice publie journaliser reserve legale reporte constituer rl apres bilan conseil",
         si = "BN publié imposé par la répartition → RL à créer"},
-      {"Dissolution : écritures, CR interne", function() formu("Dissolution", CH_DI, dissolution) end,
+      {"Dissolution : écritures, CR interne", qp("Dissolution", CH_DI, dissolution),
         forts = "dissolution journal ecriture", mots = "journaliser interne externe cr compte resultat latente dissoudre",
         si = "journaliser la dissolution ; CR externe / interne"},
       {"Théorie, V/F, catégories", theorie,

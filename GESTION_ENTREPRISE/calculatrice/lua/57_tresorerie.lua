@@ -410,31 +410,176 @@ do
     montrer("Budget (hors cours)")
   end
 
-  ------------------------------------------------------------------ menu
-  local function saisir(msg, defaut, nom)
-    return function() demander(msg, function(t) SOLVEURS[nom](t) end, defaut) end
+  ------------------------------------------------------------------ menu : une question par donnée (COMMUN.questionnaire)
+  -- les solveurs gardent leur format interne « clé=valeur;… » (tests) : le questionnaire le reconstruit.
+  local Q = COMMUN.questionnaire
+  local function defs(def)   -- « k=v;L Nom=a/b » -> table k -> v, liste des fonds {nom, a, b}
+    local t, fonds = {}, {}
+    for _, p in ipairs(paires(def)) do
+      local nom = p[1]:match("^L%s+(.+)$")
+      if nom then local a, b = p[2]:match("^(.-)/(.*)$"); table.insert(fonds, {nom, a, b}) else t[p[1]] = p[2] end
+    end
+    return t, fonds
+  end
+  local function ent(s) return (tostring(s or ""):gsub("%s", ""):gsub(",", ".")) end
+  -- groupe « comptes du fonds » : nom, N-1, N
+  local function grpFonds(fonds)
+    return {groupe = "Compte", n = {cle = "nf", lib = "Combien de comptes dans le fonds ?", defaut = tostring(#fonds), max = 8,
+        aide = "Comptes du fonds de liquidités (définition de l'énoncé) : caisse, poste, banque…"},
+      champs = function(j) local d = fonds[j] or {"", "", ""}; return {
+        {cle = "fn", lib = "nom", defaut = d[1], texte = true, aide = "Nom du compte ; « -Banque cc » = compte du passif déduit du fonds."},
+        {cle = "fa", lib = "solde au 1.1 (N-1)", defaut = d[2], aide = "Solde au bilan d'ouverture (bilan N-1)."},
+        {cle = "fb", lib = "solde au 31.12 (N)", defaut = d[3], aide = "Solde au bilan de clôture (bilan N)."}} end}
+  end
+  local function lignesFonds(v, prefixe)
+    local t = {}
+    for _, e in ipairs(COMMUN.elements(v, COMMUN.entier(v.nf, 0), {"fn", "fa", "fb"})) do
+      if e.fn ~= "" then t[#t + 1] = (prefixe or "") .. e.fn .. "=" .. ent(e.fa ~= "" and e.fa or "0") .. "/" .. ent(e.fb ~= "" and e.fb or "0") end
+    end
+    return t
+  end
+  -- postes du compte de résultat et paires N-1 / N d'un dossier de trésorerie
+  local CR = {
+    {"ven", "Ventes (produits d'exploitation)", "Ventes de l'exercice (CR). Encaissements clients = ventes − augmentation des créances."},
+    {"ach", "Charges de marchandises (PRAMV)", "Achats consommés ; décaissements = achats + augm. stock − augm. dettes fournisseurs."},
+    {"sal", "Salaires", "Charges de personnel de l'exercice (CR)."},
+    {"loy", "Loyers", "Charges de loyer de l'exercice (CR)."},
+    {"ace", "Autres charges d'exploitation", "ACE du compte de résultat (hors amortissements et provisions)."},
+    {"aut", "Autres charges", "Autres charges payées (CR), si elles sont données à part."},
+    {"cf", "Charges financières", "Intérêts payés (CR)."},
+    {"pf", "Produits financiers", "Intérêts et dividendes reçus (CR)."},
+    {"amo", "Amortissements", "Charge sans effet sur les liquidités : rajoutée au bénéfice (méthode indirecte)."},
+    {"nm", "Provisions (sans effet monétaire)", "Dotation aux provisions (litige…) : charge non monétaire, rajoutée au bénéfice."},
+    {"pvc", "Bénéfice sur cession d'AI", "Produit non monétaire : retiré du cash flow (le prix de vente va à l'investissement)."},
+    {"pc", "Pertes sur créances", "Pertes sur clients (CR) : diminuent les encaissements."},
+    {"bn", "Bénéfice net (contrôle)", "Bénéfice du CR : le solveur le recalcule et signale un écart (poste manquant)."},
+  }
+  local PAIRES = {
+    {"cre", "Créances clients", "Créances clients au bilan ; leur augmentation diminue le cash flow."},
+    {"sto", "Stock", "Stock de marchandises au bilan ; son augmentation diminue le cash flow."},
+    {"ara", "Produits à recevoir", "Actifs transitoires ; leur augmentation diminue le cash flow."},
+    {"dfo", "Dettes fournisseurs", "Dettes fournisseurs au bilan ; leur augmentation augmente le cash flow."},
+    {"pre", "Charges à payer", "Passifs transitoires ; leur augmentation augmente le cash flow."},
+  }
+  local PAIRES_TFT = {
+    {"imo", "AI nets", "Actifs immobilisés nets. Investissements = AI N − AI N-1 + amortissements + valeur comptable cédée."},
+    {"ifi", "Immob. financières", "Participations, prêts à long terme au bilan (investissement financier)."},
+    {"dlt", "Dettes financières", "Emprunts, hypothèques au bilan : leur variation va au financement."},
+    {"cap", "Capital-actions", "Capital au bilan : une augmentation libérée est un financement."},
+  }
+  local AUTRES_TFT = {
+    {"ces", "Prix de cession d'AI", "Prix de vente d'un AI cédé (désinvestissement). Vide = aucune vente."},
+    {"div", "Dividende payé (celui de N-1)", "Dividende décidé sur le bénéfice N-1 et payé en N (au bilan N-1)."},
+  }
+  -- champs : simples {cle, lib, aide} ; paires -> deux questions « au 1.1 (N-1) » et « au 31.12 (N) »
+  local function champsDossier(d, simples, pairesL, segs)
+    for _, c in ipairs(simples) do table.insert(segs, {cle = c[1], lib = c[2], defaut = d[c[1]] or "", aide = c[3], opt = true}) end
+    for _, c in ipairs(pairesL) do
+      local a, b = tostring(d[c[1]] or ""):match("^(.-)/(.*)$")
+      table.insert(segs, {cle = c[1] .. "_a", lib = c[2] .. " au 1.1 (N-1)", defaut = a or "", aide = c[3], opt = true})
+      table.insert(segs, {cle = c[1] .. "_b", lib = c[2] .. " au 31.12 (N)", defaut = b or "", aide = c[3], opt = true})
+    end
+    return segs
+  end
+  local function texteDossier(v, simples, pairesL, t)
+    for _, c in ipairs(simples) do local x = v._txt[c[1]] or ""; if x ~= "" then t[#t + 1] = c[1] .. "=" .. x end end
+    for _, c in ipairs(pairesL) do
+      local a, b = v._txt[c[1] .. "_a"] or "", v._txt[c[1] .. "_b"] or ""
+      if a ~= "" or b ~= "" then t[#t + 1] = c[1] .. "=" .. ent(a ~= "" and a or "0") .. "/" .. ent(b ~= "" and b or "0") end
+    end
+    return table.concat(t, ";")
+  end
+  local function qLiq()
+    local fonds = {}
+    for _, p in ipairs(paires(DEF_LIQ)) do local a, b = p[2]:match("^(.-)/(.*)$"); fonds[#fonds + 1] = {p[1], a, b} end
+    Q("Tableau des liquidités", COMMUN.repeter({grpFonds(fonds)}), function(v) SOLVEURS.tresoLiq(table.concat(lignesFonds(v), ";")) end)
+  end
+  local function qCF()
+    local d = defs(DEF_CF)
+    Q("Cash flow (57.7)", champsDossier(d, CR, PAIRES, {}), function(v) SOLVEURS.tresoCF(texteDossier(v, CR, PAIRES, {})) end)
+  end
+  local function qTFT()
+    local d, fonds = defs(DEF_TFT)
+    local segs = {grpFonds(fonds)}
+    champsDossier(d, CR, PAIRES, segs)
+    champsDossier(d, AUTRES_TFT, PAIRES_TFT, segs)
+    Q("Flux de trésorerie", COMMUN.repeter(segs), function(v)
+      local t = lignesFonds(v, "L ")
+      texteDossier(v, CR, PAIRES, t)
+      SOLVEURS.tresoTFT(texteDossier(v, AUTRES_TFT, PAIRES_TFT, t))
+    end)
+  end
+  -- champs fixes « clé=valeur » : questionnaire puis texte interne (vide = valeur ignorée)
+  local function qFixe(titre, def, liste, nom)
+    local d = defs(def)
+    local ch = {}
+    for _, c in ipairs(liste) do table.insert(ch, {cle = c[1], lib = c[2], defaut = d[c[1]] or "", aide = c[3], opt = c[4]}) end
+    return function() Q(titre, ch, function(_, brut) SOLVEURS[nom](brut) end) end
+  end
+  local CH_RAT = {
+    {"cf", "Cash flow", "Cash flow d'exploitation (TFT, méthode directe ou indirecte)."},
+    {"can", "Chiffre d'affaires net", "CA net du CR : marge de cash flow = cash flow × 100 ÷ CAN."},
+    {"bn", "Bénéfice net", "Pour l'indice opérationnel = cash flow ÷ bénéfice. 0 = non demandé.", true},
+    {"inv", "Investissements nets (si donnés)", "Investissements nets donnés ; 0 = calculés depuis les AI (questions suivantes).", true},
+    {"ai1", "Actifs immobilisés N-1", "AI nets au bilan N-1 (investissements = AI N − AI N-1 + amortissements…)."},
+    {"ai2", "Actifs immobilisés N", "AI nets au bilan N."},
+    {"amo", "Amortissements", "Amortissements de l'exercice N (CR)."},
+    {"pcess", "Pertes sur cession d'AI", "Perte sur vente d'immobilisations : s'ajoute aux investissements. 0 si aucune.", true},
+    {"bcess", "Bénéfices sur cession d'AI", "Bénéfice sur vente d'immobilisations : se retranche. 0 si aucun.", true},
+    {"ce", "Capitaux étrangers", "Total des dettes (CE ct + CE lt) au bilan N."},
+    {"liq", "Liquidités (sens large)", "Caisse + poste + banque + titres de placement au bilan N."},
+    {"cre", "Créances", "Créances au bilan N. Endettement effectif = CE − liquidités − créances."},
+  }
+  local CH_BFR = {
+    {"sto", "Stock moyen", "Stock moyen = (stock initial + stock final) ÷ 2."},
+    {"pramv", "PRAMV", "Prix de revient des marchandises vendues (CR)."},
+    {"cre", "Créances clients", "Créances clients moyennes (bilan)."},
+    {"ca", "Chiffre d'affaires", "CA (à crédit) de l'année."},
+    {"dfo", "Dettes fournisseurs", "Dettes fournisseurs moyennes (bilan)."},
+    {"ach", "Achats", "Achats de l'année (à crédit)."},
+    {"j", "Jours dans l'année", "360 (année commerciale, comme la liste Profil M)."},
+  }
+  local function qBudget()
+    local d = defs(DEF_BUD)
+    local mois, enc, dec = lst(d.mois), lst(d.enc), lst(d.dec)
+    Q("Budget de trésorerie", COMMUN.repeter({
+      {cle = "si", lib = "Solde de trésorerie au début", defaut = d.si or "", aide = "Liquidités disponibles au début du premier mois."},
+      {cle = "min", lib = "Solde minimum à garder", defaut = d.min or "", aide = "Encaisse de sécurité : un solde plus bas signale un besoin de financement."},
+      {groupe = "Mois", n = {cle = "nm", lib = "Combien de mois ?", defaut = tostring(#mois), max = 12, aide = "Nombre de mois (ou de périodes) du budget."},
+        champs = function(j) return {
+          {cle = "mo", lib = "nom", defaut = mois[j] or "", texte = true, aide = "Nom court du mois (Jan, Fév…)."},
+          {cle = "en", lib = "encaissements", defaut = enc[j] or "", aide = "Entrées d'argent du mois : clients, encaissements de créances…"},
+          {cle = "de", lib = "décaissements", defaut = dec[j] or "", aide = "Sorties d'argent du mois : fournisseurs, salaires, loyers, intérêts…"}} end},
+    }), function(v)
+      local m, e, dd = {}, {}, {}
+      for j, x in ipairs(COMMUN.elements(v, COMMUN.entier(v.nm, 0), {"mo", "en", "de"})) do
+        m[j] = (x.mo ~= "" and x.mo or ("Mois " .. j)):gsub("[,;=]", " "); e[j] = ent(x.en ~= "" and x.en or "0"); dd[j] = ent(x.de ~= "" and x.de or "0")
+      end
+      SOLVEURS.tresoBudget("si=" .. (v._txt.si or "") .. ";mois=" .. table.concat(m, ",") .. ";enc=" .. table.concat(e, ",") ..
+        ";dec=" .. table.concat(dd, ",") .. ";min=" .. (v._txt.min or ""))
+    end)
   end
   -- forts / mots / si : index de la recherche (99_menu) ; radicaux sans accents (voir CONVENTIONS-MODULES.md)
   table.insert(MENUS_COMPTA, {ordre = 57, titre = "Trésorerie (57)", items = {
-    {"Tableau des liquidités", saisir("Compte=N-1/N ; « -Compte » au passif (banque c/c)", DEF_LIQ, "tresoLiq"),
+    {"Tableau des liquidités", qLiq,
       forts = "liquidite tableau", mots = "tresorerie etablir caisse poste banque variation",
       si = "variation des liquidités (caisse, poste, banque)"},
-    {"Cash flow direct / indirect", saisir("CR : ven ach sal loy ace aut cf pf amo nm pvc pc ; N-1/N : cre sto ara dfo pre ; bn", DEF_CF, "tresoCF"),
+    {"Cash flow direct / indirect", qCF,
       forts = "cash flow indirect methode", mots = "direct calcul presenter augmentation liquidite secteur exploitation cf",
       si = "cash flow d'exploitation seul (dir. / indir.)"},
-    {"Tableau des flux complet", saisir("L Compte=N-1/N ; CR ; BFR N-1/N ; imo ces ifi dlt cap div", DEF_TFT, "tresoTFT"),
+    {"Tableau des flux complet", qTFT,
       forts = "flux tft", mots = "tableau tresorerie secteur exploitation investissement financement direct methode complet cash flow",
       si = "tableau des flux : 3 secteurs"},
     {"Effets des opérations", function() SOLVEURS.tresoEffets() end,
       forts = "effet operation", mots = "indiquer resultat liquidite rn liq",
       si = "effet de chaque opération sur RN / LIQ"},
-    {"Ratios de cash flow, endettement", saisir("cf ; can ; bn ; inv (ou ai1 ai2 amo pcess bcess) ; ce liq cre", DEF_RAT, "tresoRatios"),
+    {"Ratios de cash flow, endettement", qFixe("Ratios de cash flow", DEF_RAT, CH_RAT, "tresoRatios"),
       forts = "facteur free effectif qualite", mots = "cash flow ratio endettement investissement net evaluer marge",
       si = "facteur d'endettement, free cash flow, qualité"},
-    {"BFR, cycle de trésorerie (hors cours)", saisir("sto pramv cre ca dfo ach ; j = jours", DEF_BFR, "tresoBFR"),
+    {"BFR, cycle de trésorerie (hors cours)", qFixe("BFR (hors cours)", DEF_BFR, CH_BFR, "tresoBFR"),
       forts = "bfr besoin", mots = "fonds roulement cycle tresorerie",
       si = "hors cours"},
-    {"Budget de trésorerie (hors cours)", saisir("si ; mois=… ; enc=… ; dec=… ; min", DEF_BUD, "tresoBudget"),
+    {"Budget de trésorerie (hors cours)", qBudget,
       forts = "encaissement decaissement budget", mots = "tresorerie mois plan",
       si = "hors cours"},
   }})

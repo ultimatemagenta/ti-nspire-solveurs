@@ -256,23 +256,82 @@ do
     montrer("Prix (hors cours)")
   end
 
-  ------------------------------------------------------------------ menu
-  local function saisir(msg, defaut, nom)
-    return function() demander(msg, function(t) SOLVEURS[nom](t) end, defaut) end
+  ------------------------------------------------------------------ menu : une question par donnée (COMMUN.questionnaire)
+  -- les solveurs gardent leur format interne « clé=valeur;… » (tests) : le questionnaire le reconstruit.
+  local function defs(def) local t = {}; for _, p in ipairs(paires(def)) do t[p[1]] = p[2] end; return t end
+  local function qFixe(titre, def, liste, nom)
+    local d = defs(def)
+    local ch = {}
+    for _, c in ipairs(liste) do table.insert(ch, {cle = c[1], lib = c[2], defaut = d[c[1]] or "", aide = c[3], opt = c[4]}) end
+    return function() COMMUN.questionnaire(titre, ch, function(_, brut) SOLVEURS[nom](brut) end) end
+  end
+  local CH_INT = {
+    {"c", "Capital", "Capital placé ou emprunté (C0)."},
+    {"t", "Taux d'intérêt annuel", "Taux annuel (ex. 3%)."},
+    {"j", "Durée en jours (intérêt simple)", "Nombre de jours ; année commerciale de 360 jours."},
+    {"n", "Durée en années (intérêts composés)", "Nombre d'années de capitalisation."},
+    {"m", "Périodes par an (taux équivalent)", "12 = mensuel, 4 = trimestriel, 2 = semestriel."},
+    {"esc", "Taux d'escompte", "Escompte proposé par le fournisseur (ex. 2%)."},
+    {"de", "Délai d'escompte (jours)", "Paiement dans ce délai = escompte déduit (ex. 10 jours)."},
+    {"dp", "Délai de paiement (jours)", "Délai net de paiement de la facture (ex. 30 jours)."},
+  }
+  local CH_EMP = {
+    {"k", "Capital emprunté", "Montant de l'emprunt."},
+    {"t", "Taux d'intérêt annuel", "Taux annuel (ex. 5%)."},
+    {"n", "Durée (années)", "Nombre d'annuités."},
+    {"type", "Type : 1 annuités cst, 2 amort. cst", "1 = annuités constantes ; 2 = amortissement constant (annuités décroissantes)."},
+  }
+  local CH_AMO = {
+    {"v", "Valeur d'acquisition", "Prix d'achat + frais d'acquisition de l'immobilisation."},
+    {"n", "Durée d'utilisation (années)", "Durée de vie prévue."},
+    {"vr", "Valeur résiduelle", "Valeur de revente prévue à la fin (0 si aucune)."},
+    {"td", "Taux dégressif", "Taux appliqué à la valeur comptable (souvent le double du taux linéaire)."},
+  }
+  local CH_TVA = {
+    {"t", "Taux de TVA", "Taux normal (8.1 % : à vérifier selon l'année)."},
+    {"ht", "Prix hors taxe (HT)", "Prix HT dont on cherche la TVA et le TTC."},
+    {"ttc", "ou prix TTC (0 = non)", "Prix TTC dont on cherche le HT ; 0 = partir du prix HT.", true},
+    {"vht", "Ventes HT de la période", "Chiffre d'affaires HT : TVA due = ventes HT × taux."},
+    {"aht", "Achats HT de la période", "Achats HT : impôt préalable = achats HT × taux."},
+    {"ti", "Taux de l'impôt préalable", "Taux de TVA payé sur les achats."},
+  }
+  local CH_PRIX = {
+    {"pa", "Prix d'achat (coût)", "Prix d'achat HT d'une unité."},
+    {"pv", "Prix de vente HT", "Prix de vente HT ; ou donner la majoration ou la marque (une seule des trois).", true},
+    {"maj", "ou majoration (% du coût)", "Marge en % du prix d'achat ; 0 = non.", true},
+    {"mq", "ou marque (% du prix de vente)", "Marge en % du prix de vente ; 0 = non.", true},
+    {"tva", "Taux de TVA", "Pour le coefficient TTC = coefficient HT × (1 + TVA)."},
+  }
+  local function qInvest()
+    local d = defs(DEF_INV)
+    local flux = {}
+    for x in (d.cf .. ","):gmatch("(.-),") do flux[#flux + 1] = x end
+    COMMUN.questionnaire("VAN, TRI (hors cours)", COMMUN.repeter({
+      {cle = "i0", lib = "Investissement initial", defaut = d.i0, aide = "Montant investi en début de projet (année 0)."},
+      {cle = "t", lib = "Taux d'actualisation", defaut = d.t, aide = "Taux exigé (coût du capital), ex. 8%."},
+      {groupe = "Année", n = {cle = "na", lib = "Combien d'années de flux ?", defaut = tostring(#flux), max = 15,
+        aide = "Durée du projet : un flux de trésorerie net par année."},
+        champs = function(j) return {{cle = "cf", lib = "flux de trésorerie", defaut = flux[j] or "",
+          aide = "Flux net de l'année (encaissements − décaissements) ; valeur résiduelle ajoutée au dernier."}} end},
+    }), function(v)
+      local t = {}
+      for j, e in ipairs(COMMUN.elements(v, COMMUN.entier(v.na, 0), {"cf"})) do t[j] = (e.cf ~= "" and e.cf or "0"):gsub("%s", ""):gsub(",", ".") end
+      SOLVEURS.finInvest("i0=" .. (v._txt.i0 or "") .. ";cf=" .. table.concat(t, ",") .. ";t=" .. (v._txt.t or ""))
+    end)
   end
   -- forts / mots / si : index de la recherche (99_menu) ; radicaux sans accents (voir CONVENTIONS-MODULES.md)
   table.insert(MENUS_COMPTA, {ordre = 70, titre = "Finance (hors cours)", items = {
-    {"Intérêts, escompte", saisir("c capital ; t taux ; j jours ; n années ; m périodes ; esc ; de délai escompte ; dp délai paiement", DEF_INT, "finInterets"),
+    {"Intérêts, escompte", qFixe("Intérêts (hors cours)", DEF_INT, CH_INT, "finInterets"),
       forts = "interet escompte", mots = "capital taux jours", si = "hors cours"},
-    {"Emprunt, plan de remboursement", saisir("k capital ; t taux ; n années ; type 1 annuités constantes / 2 amortissement constant", DEF_EMP, "finEmprunt"),
+    {"Emprunt, plan de remboursement", qFixe("Emprunt (hors cours)", DEF_EMP, CH_EMP, "finEmprunt"),
       forts = "emprunt annuite remboursement", mots = "plan", si = "hors cours"},
-    {"VAN, TRI, délai de récupération", saisir("i0 investissement ; cf=flux,flux,… ; t taux d'actualisation", DEF_INV, "finInvest"),
+    {"VAN, TRI, délai de récupération", qInvest,
       forts = "van tri actualisation recuperation", mots = "investissement", si = "hors cours"},
-    {"Amortissements linéaire, dégressif", saisir("v valeur d'acquisition ; n durée ; vr valeur résiduelle ; td taux dégressif", DEF_AMO, "finAmort"),
+    {"Amortissements linéaire, dégressif", qFixe("Amortissements (hors cours)", DEF_AMO, CH_AMO, "finAmort"),
       forts = "lineaire degressif", mots = "amortissement valeur residuelle", si = "hors cours"},
-    {"TVA : HT/TTC, décompte", saisir("t taux ; ht ou ttc ; vht ventes HT ; aht achats HT ; ti taux impôt préalable", DEF_TVA, "finTVA"),
+    {"TVA : HT/TTC, décompte", qFixe("TVA (hors cours)", DEF_TVA, CH_TVA, "finTVA"),
       forts = "tva ht ttc", mots = "decompte impot prealable", si = "hors cours"},
-    {"Marge, marque, coefficients", saisir("pa prix d'achat ; pv ou maj (majoration) ou mq (marque) ; tva", DEF_PRIX, "finPrix"),
+    {"Marge, marque, coefficients", qFixe("Prix (hors cours)", DEF_PRIX, CH_PRIX, "finPrix"),
       forts = "marque coefficient majoration", mots = "marge prix achat vente", si = "hors cours"},
   }})
 end

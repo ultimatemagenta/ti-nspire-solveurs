@@ -27,7 +27,7 @@ do
     return t
   end
   local function source(txt, defaut) if txt and trim(txt) ~= "" then return txt end; return defaut end
-  -- formulaire simple : valeurs par défaut puis valeurs saisies
+  -- valeurs par défaut puis texte interne « clé=valeur;… » (reconstruit par les questionnaires du menu)
   local function champs(defaut, txt)
     local v = {}
     for _, p in ipairs(paires(defaut)) do v[p[1]] = N(p[2]) end
@@ -537,34 +537,306 @@ do
     montrer("Unité d'œuvre")
   end
 
-  ------------------------------------------------------------------ menu
-  local function saisir(msg, defaut, nom)
-    return function() demander(msg, function(t) SOLVEURS[nom](t) end, defaut) end
+  ------------------------------------------------------------------ menu : une question par donnée (COMMUN.questionnaire)
+  -- les solveurs gardent leur format interne « clé=valeur;… » (tests) : le questionnaire le reconstruit.
+  local Q, lu, entier = COMMUN.questionnaire, COMMUN.lu, COMMUN.entier
+  local function defs(def) local t = {}; for _, p in ipairs(paires(def)) do t[p[1]] = p[2] end; return t end
+  local function ent(s) return (tostring(s or ""):gsub("%s", ""):gsub(",", ".")) end
+  local function nom(s) return (tostring(s or ""):gsub("[,;=@]", " ")) end
+  -- liste {cle, lib, aide[, opt]} -> champs avec défauts tirés de « clé=valeur;… »
+  local function champsFixes(d, liste, segs)
+    segs = segs or {}
+    for _, c in ipairs(liste) do table.insert(segs, {cle = c[1], lib = c[2], defaut = d[c[1]] or "", aide = c[3], opt = c[4]}) end
+    return segs
+  end
+  local function texteFixes(v, liste, t)
+    for _, c in ipairs(liste) do t[#t + 1] = c[1] .. "=" .. (v._txt[c[1]] or "") end
+    return t
+  end
+  local function qFixe(titre, def, liste, nomS)
+    return function() Q(titre, champsFixes(defs(def), liste), function(v) SOLVEURS[nomS](table.concat(texteFixes(v, liste, {}), ";")) end) end
+  end
+
+  -- 1. compte de stock : mouvements un par un
+  local function qStock()
+    local mv, d = {}, {}
+    for _, p in ipairs(paires(DEF_STOCK)) do
+      local typ, date = p[1]:match("^(%a+)%s*(.*)$")
+      if p[1] == "dec" or p[1] == "arr" or p[1] == "mode" then d[p[1]] = p[2]
+      else local q, cu = p[2]:match("^(.-)@(.*)$"); mv[#mv + 1] = {typ, date, q or p[2], cu or ""} end
+    end
+    Q("Stock au CMP", COMMUN.repeter({
+      {groupe = "Mouvement", n = {cle = "nm", lib = "Combien de mouvements (SI compris) ?", defaut = tostring(#mv), max = 15,
+        aide = "Stock initial, chaque entrée et chaque bon de sortie, dans l'ordre des dates (59.13 : 6)."},
+        champs = function(j) local m = mv[j] or {"", "", "", ""}; return {
+          {cle = "ty", lib = "type (si, e ou s)", defaut = m[1], texte = true, aide = "si = stock initial, e = entrée (achat), s = sortie (bon de sortie).",
+            valider = function(t) local x = t:lower(); if x ~= "si" and x ~= "e" and x ~= "s" then return "Taper si, e ou s." end end},
+          {cle = "da", lib = "date", defaut = m[2], texte = true, opt = true, aide = "Date du mouvement (ex. 12.03) ; vide possible."},
+          {cle = "qt", lib = "quantité", defaut = m[3], aide = "Quantité entrée ou sortie (unités, kg…)."},
+          {cle = "cu", lib = "coût unitaire (si, e)", defaut = m[4], opt = true, aide = "Prix unitaire de l'entrée ou du stock initial ; vide pour une sortie (valorisée au CMP)."}} end},
+      {cle = "dec", lib = "Décimales du CMP", defaut = d.dec or "4", aide = "Arrondi du coût moyen pondéré (prof : 4 décimales)."},
+      {cle = "arr", lib = "Décimales des montants", defaut = d.arr or "2", aide = "Arrondi des totaux (2 = centimes)."},
+      {cle = "mode", lib = "CMP : g (période) ou p (après chaque entrée)", defaut = d.mode or "g", texte = true,
+        aide = "g = CMP de la période (méthode des corrigés du prof) ; p = variante recalculée après chaque entrée.",
+        valider = function(t) if t ~= "g" and t ~= "p" then return "Taper g ou p." end end},
+    }), function(v)
+      local t = {}
+      for _, e in ipairs(COMMUN.elements(v, entier(v.nm, 0), {"ty", "da", "qt", "cu"})) do
+        local ty = e.ty:lower()
+        local k = ty .. (e.da ~= "" and (" " .. nom(e.da)) or "")
+        t[#t + 1] = k .. "=" .. ent(e.qt ~= "" and e.qt or "0") .. ((ty ~= "s" and e.cu ~= "") and ("@" .. ent(e.cu)) or "")
+      end
+      for _, k in ipairs({"dec", "arr", "mode"}) do t[#t + 1] = k .. "=" .. (v._txt[k] or "") end
+      SOLVEURS.coutsStock(table.concat(t, ";"))
+    end)
+  end
+
+  -- 2. répartition des charges indirectes : sections, charges par section, clés des auxiliaires, unités d'œuvre
+  local function qRepart()
+    local d, ch, cles = {}, {}, {}
+    for _, p in ipairs(paires(DEF_REP)) do
+      local typ, n = p[1]:match("^(%a)%s+(.+)$")
+      if typ == "c" then local tot, w = p[2]:match("^(.-)@(.*)$"); ch[#ch + 1] = {n, tot or "", lst(w or p[2])}
+      elseif typ == "k" then cles[n] = lst(p[2])
+      else d[p[1]] = p[2] end
+    end
+    local sec, uo, nuo = lst(d.sec), lst(d.uo), lst(d.nuo)
+    local function ns(val) return math.max(1, math.min(10, entier(lu(val, "ns", tostring(#sec)), #sec))) end
+    local function na(val) return math.max(0, math.min(ns(val) - 1, entier(lu(val, "aux", d.aux), 0))) end
+    local function nomSec(val, i) return lu(val, "sn_" .. i, sec[i] or ("S" .. i)) end
+    Q("Répartition des CI", COMMUN.repeter({
+      {groupe = "Section", n = {cle = "ns", lib = "Combien de sections (aux. comprises) ?", defaut = tostring(#sec), max = 10,
+        aide = "Toutes les sections du tableau, auxiliaires d'abord, dans l'ordre de répartition (test 2026-02 : 6)."},
+        champs = function(j) return {{cle = "sn", lib = "nom", defaut = sec[j] or "", texte = true,
+          aide = "Nom court de la section (en-tête de colonne du tableau de répartition)."}} end},
+      {cle = "aux", lib = "Combien de sections auxiliaires ?", defaut = d.aux or "0",
+        aide = "Les premières sections de la liste : elles se vident vers les suivantes selon leur clé (59 p.20)."},
+      {groupe = "Charge", n = {cle = "nc", lib = "Combien de charges indirectes ?", defaut = tostring(#ch), max = 10,
+        aide = "Lignes du tableau de répartition primaire (consommables, ACE, formation…)."},
+        champs = function(j, val)
+          local c = ch[j] or {"", "", {}}
+          local l = {
+            {cle = "cn", lib = "nom", defaut = c[1], texte = true, aide = "Nom de la charge (ligne de la répartition primaire)."},
+            {cle = "ct", lib = "total à répartir selon une clé", defaut = c[2], opt = true,
+              aide = "Vide = montants donnés par section ; sinon total réparti selon les poids des questions suivantes."}}
+          for i = 1, ns(val) do
+            l[#l + 1] = {cle = "cm" .. i, lib = "montant (ou poids) " .. nomSec(val, i), defaut = c[3][i] or "", opt = true,
+              aide = "Part de la charge pour la section " .. nomSec(val, i) .. " (vide = 0)."}
+          end
+          return l
+        end},
+      {groupe = "Clé", nombre = na, champs = function(a, val)
+          local l, w = {}, cles[sec[a] or ""] or {}
+          for i = a + 1, ns(val) do
+            l[#l + 1] = {cle = "kw" .. i, lib = nomSec(val, a) .. " → " .. nomSec(val, i), defaut = w[i] or "", opt = true,
+              aide = "Poids (ou %) de la clé de répartition de la section auxiliaire " .. nomSec(val, a) .. " (vide = 0)."}
+          end
+          return l
+        end},
+      {groupe = "UO", nombre = function(val) return ns(val) - na(val) end, champs = function(k, val)
+          local i = k + na(val)
+          return {
+            {cle = "un", lib = nomSec(val, i) .. " : nombre d'UO", defaut = uo[k] or "", opt = true,
+              aide = "Nombre d'unités d'œuvre de la section (heures, kg…). Coût UO = total secondaire ÷ nombre."},
+            {cle = "ul", lib = nomSec(val, i) .. " : nature de l'UO", defaut = nuo[k] or "", texte = true, opt = true,
+              aide = "Ex. kg, h mach, paquets ; commencer par % pour un coût en % (base en CHF, ex. %CAN)."}}
+        end},
+      {cle = "dec", lib = "Décimales du coût de l'UO", defaut = d.dec or "0", aide = "Test 2026-02 : à l'unité (0) ; 59.10, 59.15 : 4 décimales."},
+    }), function(v)
+      local val = v._txt
+      local n, a = ns(val), na(val)
+      local s, t = {}, {}
+      for i = 1, n do s[i] = nom(nomSec(val, i)) end
+      t[#t + 1] = "sec=" .. table.concat(s, ",")
+      t[#t + 1] = "aux=" .. a
+      for j = 1, entier(v.nc, 0) do
+        local m = {}
+        for i = 1, n do local x = val["cm" .. i .. "_" .. j] or ""; m[i] = ent(x ~= "" and x or "0") end
+        local tot = val["ct_" .. j] or ""
+        t[#t + 1] = "c " .. nom(val["cn_" .. j] ~= "" and val["cn_" .. j] or ("Charge " .. j)) .. "=" ..
+          (tot ~= "" and (ent(tot) .. "@") or "") .. table.concat(m, ",")
+      end
+      for k = 1, a do
+        local w = {}
+        for i = 1, n do local x = i > k and (val["kw" .. i .. "_" .. k] or "") or ""; w[i] = ent(x ~= "" and x or "0") end
+        t[#t + 1] = "k " .. s[k] .. "=" .. table.concat(w, ",")
+      end
+      local u, ul = {}, {}
+      for k = 1, n - a do
+        local x = val["un_" .. k] or ""; u[k] = ent(x ~= "" and x or "0"); ul[k] = nom(val["ul_" .. k] or "")
+      end
+      t[#t + 1] = "uo=" .. table.concat(u, ",")
+      t[#t + 1] = "nuo=" .. table.concat(ul, ",")
+      t[#t + 1] = "dec=" .. (val.dec or "")
+      SOLVEURS.coutsRepart(table.concat(t, ";"))
+    end)
+  end
+
+  -- 3. cascade : approvisionnement, 1 ou 2 ateliers, distribution, ventes
+  local CASC_DEBUT = {
+    {"mode", "Mode : 1 (CI appro en stock) ou 2", "1 = stock de MP au coût d'achat (test 2026-02) ; 2 = au prix d'achat, CI appro ajoutées aux MP utilisées (59.15)."},
+    {"mpq", "Stock initial MP : quantité", "Stock de matières premières au début (quantité)."},
+    {"mpcu", "Stock initial MP : coût unitaire", "Coût unitaire du stock initial de matières."},
+    {"achq", "Matières achetées : quantité", "Quantité de matières achetée pendant la période."},
+    {"achp", "Matières achetées : prix unitaire", "Prix d'achat unitaire des matières."},
+    {"uoa", "Coût de l'UO d'approvisionnement", "Coût de l'unité d'œuvre de la section appro (tableau de répartition) ; UO = quantité achetée."},
+    {"mpu", "Matières utilisées : quantité", "Bon de sortie des matières vers la production (quantité)."},
+  }
+  local CASC_ATELIER = {
+    {"h", "heures de MOD", "Heures de main-d'œuvre directe de l'atelier."},
+    {"t", "taux horaire de la MOD", "Coût d'une heure de main-d'œuvre directe."},
+    {"n", "nombre d'UO", "Unités d'œuvre de l'atelier (tableau de répartition)."},
+    {"c", "coût de l'UO", "Coût de l'unité d'œuvre de l'atelier (tableau de répartition)."},
+    {"q", "quantité produite", "Produits sortis de l'atelier."},
+    {"sq", "stock initial : quantité", "Stock initial de produits de l'atelier (quantité)."},
+    {"scu", "stock initial : coût unitaire", "Coût unitaire du stock initial de produits."},
+    {"so", "sorties du stock : quantité", "Produits sortis du stock (vers l'atelier suivant ou vendus)."},
+  }
+  local CASC_FIN = {
+    {"dd", "Charges directes de distribution", "Charges de distribution affectées directement (0 si aucune)."},
+    {"nd", "UO de distribution : nombre", "Unités d'œuvre de la section distribution (ex. paquets vendus)."},
+    {"cd", "Coût de l'UO de distribution", "Coût de l'UO de distribution (tableau de répartition)."},
+    {"vq", "Quantité vendue", "Produits vendus."},
+    {"pv", "Prix de vente unitaire", "Prix de vente d'un produit."},
+    {"dec", "Décimales des CMP", "Arrondi des coûts unitaires (prof : 4)."},
+    {"arr", "Décimales des montants", "Arrondi des totaux (0 = au franc, test 2026-02)."},
+  }
+  local function qCascade()
+    local d = defs(DEF_CASC)
+    local segs = champsFixes(d, CASC_DEBUT)
+    segs[#segs + 1] = {groupe = "Atelier", n = {cle = "nat", lib = "Combien d'ateliers ? (1 ou 2)", defaut = (d.h2 and d.h2 ~= "0") and "2" or "1", max = 2,
+        aide = "Ateliers de production successifs (test 2026-02 : transformation puis empaquetage)."},
+      champs = function(j) local l = {}
+        for _, c in ipairs(CASC_ATELIER) do l[#l + 1] = {cle = c[1], lib = c[2], defaut = d[c[1] .. j] or "", aide = c[3]} end
+        return l end}
+    champsFixes(d, CASC_FIN, segs)
+    Q("Coûts en cascade", COMMUN.repeter(segs), function(v)
+      local t = texteFixes(v, CASC_DEBUT, {})
+      local na = entier(v.nat, 1)
+      for j = 1, 2 do
+        for _, c in ipairs(CASC_ATELIER) do t[#t + 1] = c[1] .. j .. "=" .. (j <= na and (v._txt[c[1] .. "_" .. j] or "") or "0") end
+      end
+      SOLVEURS.coutsCascade(table.concat(texteFixes(v, CASC_FIN, t), ";"))
+    end)
+  end
+
+  -- 4. commande : matières, MOD, ateliers (UO × coût), distribution, prix
+  local CMD_DEBUT = {
+    {"mpq", "Matières : quantité", "Quantité de matières premières pour la commande."},
+    {"mpp", "Matières : prix unitaire", "Prix d'achat unitaire des matières."},
+    {"ciap", "CI appro en % des matières", "Charges indirectes d'approvisionnement en % du coût des matières (59.9 b : 14%). 0 = non.", true},
+    {"ciak", "CI appro par unité de matière", "CI d'approvisionnement par kg ou unité de matière. 0 = non.", true},
+    {"modh", "MOD : heures", "Heures de main-d'œuvre directe pour la commande."},
+    {"modt", "MOD : taux horaire", "Coût d'une heure de MOD."},
+  }
+  local CMD_FIN = {
+    {"dd", "Charges directes de distribution", "Charges de distribution propres à la commande (0 si aucune).", true},
+    {"cid", "CI de distribution (taux)", "Taux des charges indirectes de distribution (ex. 6.73%), appliqué au prix."},
+    {"pc", "Prix brut (catalogue)", "Prix de vente catalogue de la commande."},
+    {"rem", "Remise accordée", "Remise en % du prix brut (0 si aucune).", true},
+    {"base", "Base des CI distr. : 1 brut, 2 net", "1 = prix brut (CAB) ; 2 = prix net après remise."},
+  }
+  local function qCommande()
+    local d = defs(DEF_CMD)
+    local nat = 0
+    for j = 1, 3 do if (N(d["u" .. j]) or 0) ~= 0 then nat = j end end
+    local segs = champsFixes(d, CMD_DEBUT)
+    segs[#segs + 1] = {groupe = "Atelier", n = {cle = "nat", lib = "Combien d'ateliers ? (0 à 3)", defaut = tostring(nat), min = 0, max = 3,
+        aide = "Sections de production traversées par la commande (59.10 b : 3)."},
+      champs = function(j) return {
+        {cle = "u", lib = "nombre d'UO", defaut = d["u" .. j] or "", aide = "Unités d'œuvre consommées par la commande dans l'atelier."},
+        {cle = "c", lib = "coût de l'UO", defaut = d["c" .. j] or "", aide = "Coût de l'unité d'œuvre (tableau de répartition)."}} end}
+    champsFixes(d, CMD_FIN, segs)
+    Q("Commande", COMMUN.repeter(segs), function(v)
+      local t = texteFixes(v, CMD_DEBUT, {})
+      local na = entier(v.nat, 0)
+      for j = 1, 3 do
+        t[#t + 1] = "u" .. j .. "=" .. (j <= na and (v._txt["u_" .. j] or "") or "0")
+        t[#t + 1] = "c" .. j .. "=" .. (j <= na and (v._txt["c_" .. j] or "") or "0")
+      end
+      SOLVEURS.coutsCommande(table.concat(texteFixes(v, CMD_FIN, t), ";"))
+    end)
+  end
+
+  local CH_INC = {
+    {"cg", "Charges d'exploitation (période)", "Charges de la comptabilité générale de la période, sans amortissements ni provisions."},
+    {"exc", "Charges exceptionnelles", "Non incorporables en CAE (0 si aucune).", true},
+    {"amo", "Amortissements (annuels)", "Amortissements comptables de l'année."},
+    {"amon", "Amortissement exceptionnel", "Part non incorporable des amortissements (0 si aucune).", true},
+    {"prov", "Provisions (annuelles)", "Dotations aux provisions de l'année."},
+    {"provn", "Provisions non incorporables", "Part non incorporable des provisions (0 si aucune).", true},
+    {"rem", "Rémunération de l'exploitant (an)", "Charge supplétive : salaire fictif de l'exploitant, par an."},
+    {"cp", "Capital propre", "Base de l'intérêt calculé (charge supplétive)."},
+    {"ti", "Taux de l'intérêt calculé", "Taux appliqué au capital propre (ex. 5%)."},
+    {"per", "Périodes par an", "12 = mensuel : les montants annuels sont divisés par ce nombre."},
+  }
+  local CH_RCG = {
+    {"ra", "Résultat analytique", "Résultat de la CAE (somme des résultats des produits, ex. 140000+220000)."},
+    {"exc", "Charges exceptionnelles", "Non incorporées en CAE : à retrancher.", true},
+    {"amocg", "Amortissements CG", "Amortissements comptables (comptabilité générale)."},
+    {"amocae", "Amortissements CAE", "Amortissements calculés en CAE."},
+    {"chf", "Charges financières", "Non incorporées en CAE : à retrancher.", true},
+    {"prf", "Produits financiers", "Non incorporés en CAE : à ajouter.", true},
+    {"cp", "Capital propre", "Base de l'intérêt calculé (charge supplétive, pas une charge en CG)."},
+    {"ti", "Taux de l'intérêt calculé", "Taux de rémunération des fonds propres (ex. 6%)."},
+    {"rem", "Rémunération de l'exploitant", "Charge supplétive de la période (ex. 4000*12)."},
+  }
+  local CH_DEP = {
+    {"qa", "Dép. A : articles vendus", "Quantité vendue du département A (clé des frais généraux)."},
+    {"pa", "Dép. A : prix de vente", "Prix de vente unitaire de A."},
+    {"qb", "Dép. B : articles vendus", "Quantité vendue du département B."},
+    {"pb", "Dép. B : prix de vente", "Prix de vente unitaire de B."},
+    {"pra", "Dép. A : PRAMV", "Charges de marchandises de A (affectées directement)."},
+    {"prb", "Dép. B : PRAMV", "Charges de marchandises de B."},
+    {"fpa", "Dép. A : frais de personnel", "Frais de personnel affectés à A."},
+    {"fpb", "Dép. B : frais de personnel", "Frais de personnel affectés à B."},
+    {"fg", "Frais généraux communs", "Répartis au prorata des articles vendus (59.6)."},
+  }
+  local function qUO()
+    local tot, pr = "", {}
+    for _, p in ipairs(paires(DEF_UO)) do
+      if p[1] == "tot" then tot = p[2] else local n = p[1]:match("^p%s+(.+)$"); if n then local l = lst(p[2]); pr[#pr + 1] = {n, l[1], l[2]} end end
+    end
+    Q("Unité d'œuvre", COMMUN.repeter({
+      {cle = "tot", lib = "Charges totales", defaut = tot, aide = "Charges à répartir sur les unités d'œuvre (59.7 : 2'470'000)."},
+      {groupe = "Profil", n = {cle = "np", lib = "Combien de profils (prestations) ?", defaut = tostring(#pr), max = 10,
+        aide = "Profils ou prestations qui consomment des UO (59.7 : profils B, E, M ; 59.4 : 1)."},
+        champs = function(j) local p = pr[j] or {"", "", ""}; return {
+          {cle = "pn", lib = "nom", defaut = p[1], texte = true, aide = "Nom du profil."},
+          {cle = "ph", lib = "heures hebdomadaires", defaut = p[2], aide = "Heures par semaine du profil ; UO = heures × classes."},
+          {cle = "pc", lib = "nombre de classes", defaut = p[3], aide = "Nombre de classes du profil (1 si une seule)."}} end},
+    }), function(v)
+      local t = {"tot=" .. (v._txt.tot or "")}
+      for j, e in ipairs(COMMUN.elements(v, entier(v.np, 0), {"pn", "ph", "pc"})) do
+        t[#t + 1] = "p " .. nom(e.pn ~= "" and e.pn or ("Profil " .. j)) .. "=" .. ent(e.ph ~= "" and e.ph or "0") .. "," .. ent(e.pc ~= "" and e.pc or "1")
+      end
+      SOLVEURS.coutsUO(table.concat(t, ";"))
+    end)
   end
   -- forts / mots / si : index de la recherche (99_menu) ; radicaux sans accents (voir CONVENTIONS-MODULES.md)
   table.insert(MENUS_COMPTA, {ordre = 59, titre = "Coûts (59)", items = {
-    {"Compte de stock au CMP", saisir("Stock : si date=q@cu ; e date=q@cu ; s date=q ; dec ; arr ; mode=g (période) ou p", DEF_STOCK, "coutsStock"),
+    {"Compte de stock au CMP", qStock,
       forts = "cmp pondere entree sortie", mots = "compte stock etablir presenter cout moyen matiere premiere achetee",
       si = "entrées / sorties valorisées au CMP"},
-    {"Répartition des charges indirectes", saisir("sec=… ; aux=nb ; c Nom=montants ou total@clé ; k Section=clé ; uo=… ; nuo=… ; dec", DEF_REP, "coutsRepart"),
+    {"Répartition des charges indirectes", qRepart,
       forts = "repartition indirecte section", mots = "charge tableau auxiliaire principale unite oeuvre etablir primaire secondaire cle",
       si = "tableau de répartition (sections, clés)"},
-    {"Coûts : appro → prix de revient", saisir("mode 1 (CI appro en stock) / 2 (59.15) ; SI MP, achats, uoa ; ateliers h,t,n,c,q, stock sq,scu,so ; distribution nd,cd ; ventes vq,pv", DEF_CASC, "coutsCascade"),
+    {"Coûts : appro → prix de revient", qCascade,
       forts = "approvisionnement transformation distribu complet cascade revient mois", mots = "cout prix production matiere premiere resultat atelier fabrication",
       si = "cascade : appro → production → prix de revient"},
-    {"Prix de revient d'une commande", saisir("Matières, CI appro (% ou /kg), MOD, CI ateliers u×c, distribution, prix et remise", DEF_CMD, "coutsCommande"),
+    {"Prix de revient d'une commande", qCommande,
       forts = "commande devis revient", mots = "prix remise mod produit resultat",
       si = "une commande ou un produit : PR et résultat"},
-    {"Charges incorporables", saisir("cg = charges d'exploitation de la période ; montants annuels ; per = périodes par an", DEF_INC, "coutsIncorp"),
+    {"Charges incorporables", qFixe("Charges incorporables", DEF_INC, CH_INC, "coutsIncorp"),
       forts = "incorporable incorporee", mots = "charge cae periode mois montant",
       si = "charges de la CG → charges incorporables"},
-    {"Résultat analytique → CG", saisir("ra = résultat analytique ; corrections", DEF_RCG, "coutsResCG"),
+    {"Résultat analytique → CG", qFixe("Résultat CG (59.2)", DEF_RCG, CH_RCG, "coutsResCG"),
       forts = "generale cg concordance", mots = "resultat analytique correction determination passage",
       si = "résultat analytique → résultat de la CG"},
-    {"Résultat par département", saisir("Quantités, prix, charges directes ; fg réparti selon les articles", DEF_DEP, "coutsDept"),
+    {"Résultat par département", qFixe("Départements (59.6)", DEF_DEP, CH_DEP, "coutsDept"),
       forts = "departement", mots = "resultat produit frais generaux",
       si = "résultat par produit / département"},
-    {"Coût de l'unité d'œuvre", saisir("tot = charges ; p Nom=heures,classes", DEF_UO, "coutsUO"),
+    {"Coût de l'unité d'œuvre", qUO,
       forts = "oeuvre uo profil classe", mots = "cout unite heure tableau completer",
       si = "coût par unité d'œuvre (profil, classe)"},
   }})

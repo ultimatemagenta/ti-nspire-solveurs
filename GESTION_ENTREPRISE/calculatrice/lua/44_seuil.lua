@@ -30,7 +30,10 @@ do
   end
   local function nz(x) return x and math.abs(x) > EPS end
   local function lancer(champs, f) return function(txt) f(COMMUN.lireChamps(txt or "", champs)) end end
-  local function menu(titre, champs, f) return function() COMMUN.formulaire(titre, champs, function(v) f(v) end) end end
+  -- menus : une question par donnée (COMMUN.questionnaire) ; les solveurs gardent leurs arguments « cle=valeur;… » (tests)
+  local function menu(titre, champs, f) return function() COMMUN.questionnaire(titre, champs, function(v) f(v) end) end end
+  -- liste de nombres d'un groupe « Combien de … ? » -> texte « a b c » (format interne de lectureGraphe)
+  local function suiteGroupe(v, cle, n) local t = {}; for j = 1, n do local x = v._txt[cle .. "_" .. j]; if x and x ~= "" then t[#t + 1] = x:gsub("%s", "") end end; return table.concat(t, " ") end
 
   local MOIS = {"janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"}
   -- jour n d'une année commerciale de 360 jours (mois de 30 jours) -> « 18 mai »
@@ -71,16 +74,16 @@ do
 
   ------------------------------------------------------------------ B1 compte de résultat à 2 degrés
   local CH_CR = {
-    {cle = "vb", lib = "ventes brutes", defaut = "2000"},
-    {cle = "da", lib = "déductions accordées", defaut = "30"},
-    {cle = "pc", lib = "pertes sur créances", defaut = "0"},
-    {cle = "fv", lib = "frais de vente", defaut = "0"},
-    {cle = "ab", lib = "achats bruts", defaut = "1100"},
-    {cle = "do", lib = "déductions obtenues", defaut = "20"},
-    {cle = "fa", lib = "frais d'achats", defaut = "70"},
-    {cle = "ace", lib = "autres charges d'exploitation", defaut = "400"},
-    {cle = "si", lib = "inventaire initial au PRA", defaut = "150"},
-    {cle = "sf", lib = "inventaire final au PRA", defaut = "250"},
+    {cle = "vb", lib = "Ventes brutes", defaut = "2000", aide = "Ventes de marchandises (brutes). CAN = ventes − déductions accordées − pertes s/créances − frais de vente (44 p.3)."},
+    {cle = "da", lib = "Déductions accordées", defaut = "30", aide = "Rabais, remises, escomptes accordés aux clients : diminuent les ventes."},
+    {cle = "pc", lib = "Pertes sur créances", defaut = "0", aide = "Pertes sur créances clients : diminuent le CAN (0 si non données)."},
+    {cle = "fv", lib = "Frais de vente", defaut = "0", aide = "Frais de vente directs (commissions…) : diminuent le CAN (0 si non donnés)."},
+    {cle = "ab", lib = "Achats bruts", defaut = "1100", aide = "Achats de marchandises (bruts). PRAMA = achats − déductions obtenues + frais d'achats (44 p.3)."},
+    {cle = "do", lib = "Déductions obtenues", defaut = "20", aide = "Rabais, remises, escomptes obtenus des fournisseurs : diminuent les achats."},
+    {cle = "fa", lib = "Frais d'achats", defaut = "70", aide = "Frais d'achat = transport + douane sur achats (44 p.3) : augmentent le PRAMA."},
+    {cle = "ace", lib = "Autres charges d'exploitation", defaut = "400", aide = "Autres charges d'exploitation (2e degré) : personnel, loyer, amortissements, intérêts…"},
+    {cle = "si", lib = "Inventaire initial au PRA", defaut = "150", aide = "Stock de marchandises au début (inventaire initial, au PRA)."},
+    {cle = "sf", lib = "Inventaire final au PRA", defaut = "250", aide = "Stock au 31.12 (inventaire final, au PRA). PRAMV = PRAMA + SI − SF."},
   }
   local function cr2(v)
     vider()
@@ -134,13 +137,13 @@ do
 
   ------------------------------------------------------------------ B3, B4 seuil en quantité, bénéfice visé, résultat à un volume
   local CH_Q = {
-    {cle = "pv", lib = "prix de vente unitaire (0 si inconnu)", defaut = "10"},
-    {cle = "cv", lib = "coût variable unitaire (0 si inconnu)", defaut = "2"},
-    {cle = "t", lib = "taux de marge brute (si PV ou CV inconnu)", defaut = "0"},
-    {cle = "base", lib = "base du taux : 0 = % du PVN, 1 = % du coût variable", defaut = "0"},
-    {cle = "cf", lib = "charges fixes de la période", defaut = "640"},
-    {cle = "bn", lib = "bénéfice visé (négatif = perte)", defaut = "500"},
-    {cle = "q", lib = "quantité vendue (résultat, 0 = non)", defaut = "0"},
+    {cle = "pv", lib = "Prix de vente unitaire (0 si inconnu)", defaut = "10", aide = "Prix de vente net d'une unité. 0 si on ne le connaît pas (il se déduit du taux de marge)."},
+    {cle = "cv", lib = "Coût variable unitaire (0 si inconnu)", defaut = "2", aide = "Coût variable (prix de revient d'achat) d'une unité. 0 s'il se déduit du taux."},
+    {cle = "t", lib = "Taux de marge brute (si PV ou CV inconnu)", defaut = "0", aide = "Taux de marge brute donné quand PV ou CV manque (ex. 33.33%). 0 sinon."},
+    {cle = "base", lib = "Base du taux : 0 = % du PVN, 1 = % du coût variable", defaut = "0", aide = "0 = taux en % du prix de vente (PVN) ; 1 = taux en % du coût variable (44.8 c)."},
+    {cle = "cf", lib = "Charges fixes de la période", defaut = "640", aide = "Charges fixes de la période (frais généraux, loyers, salaires fixes…)."},
+    {cle = "bn", lib = "Bénéfice visé (négatif = perte)", defaut = "500", aide = "Bénéfice net à atteindre (0 = point mort ; perte tolérée en négatif)."},
+    {cle = "q", lib = "Quantité vendue (résultat, 0 = non)", defaut = "0", aide = "Quantité vendue si on cherche le résultat obtenu ; 0 = pas demandé."},
   }
   local function seuilQ(v)
     vider()
@@ -210,12 +213,12 @@ do
 
   ------------------------------------------------------------------ B2 seuil en valeur par le taux de marge brute
   local CH_V = {
-    {cle = "ca", lib = "chiffre d'affaires net", defaut = "12568000"},
-    {cle = "pramv", lib = "PRAMV (charges variables)", defaut = "8169200"},
-    {cle = "cf", lib = "charges fixes", defaut = "2896000"},
-    {cle = "bn", lib = "bénéfice net visé (0 = non)", defaut = "2000000"},
-    {cle = "fp", lib = "fonds propres à rémunérer (0 = non)", defaut = "0"},
-    {cle = "tfp", lib = "taux de rémunération des FP", defaut = "0"},
+    {cle = "ca", lib = "Chiffre d'affaires net", defaut = "12568000", aide = "CA net de la période (CR à 2 degrés). Taux de MB = (CA − PRAMV) ÷ CA."},
+    {cle = "pramv", lib = "PRAMV (charges variables)", defaut = "8169200", aide = "Prix de revient d'achat des marchandises vendues = charges variables."},
+    {cle = "cf", lib = "Charges fixes", defaut = "2896000", aide = "Charges fixes = autres charges d'exploitation (2e degré du CR)."},
+    {cle = "bn", lib = "Bénéfice net visé (0 = non)", defaut = "2000000", aide = "Bénéfice net visé : CA visé = (CF + BN) ÷ taux de MB. 0 = pas demandé."},
+    {cle = "fp", lib = "Fonds propres à rémunérer (0 = non)", defaut = "0", aide = "Fonds propres à rémunérer (44.10) : bénéfice visé = FP × taux. 0 = non."},
+    {cle = "tfp", lib = "Taux de rémunération des FP", defaut = "0", aide = "Taux de rémunération des fonds propres (ex. 5%). 0 = non."},
   }
   local function seuilV(v)
     vider()
@@ -256,9 +259,9 @@ do
 
   ------------------------------------------------------------------ B4 base du taux, CAN depuis la marge brute
   local CH_T = {
-    {cle = "t", lib = "taux de marge brute", defaut = "50%"},
-    {cle = "base", lib = "base : 0 = % du CAN, 1 = % du PRAMV", defaut = "1"},
-    {cle = "mb", lib = "marge brute (bénéfice brut) connue", defaut = "15000"},
+    {cle = "t", lib = "Taux de marge brute", defaut = "50%", aide = "Taux de marge brute donné par l'énoncé (ex. 50%)."},
+    {cle = "base", lib = "Base : 0 = % du CAN, 1 = % du PRAMV", defaut = "1", aide = "0 = taux en % du CAN ; 1 = taux en % du PRAMV (coût) : à ramener au CAN (44.8 c)."},
+    {cle = "mb", lib = "Marge brute (bénéfice brut) connue", defaut = "15000", aide = "Marge brute (bénéfice brut) connue : CAN = MB ÷ taux sur le CAN."},
   }
   local function tauxBase(v)
     vider()
@@ -285,13 +288,13 @@ do
 
   ------------------------------------------------------------------ B7 budget : PRAMV, taux, PM, résultat, prévisions, date
   local CH_B = {
-    {cle = "ca", lib = "CAN", defaut = "800000"},
-    {cle = "ach", lib = "achats (PRAMA)", defaut = "360000"},
-    {cle = "aug", lib = "augmentation de stock (− = diminution)", defaut = "40000"},
-    {cle = "cf", lib = "charges fixes", defaut = "120000"},
-    {cle = "cab", lib = "CA du budget (0 = non)", defaut = "760000"},
-    {cle = "dt", lib = "baisse du taux en points (− = hausse)", defaut = "2"},
-    {cle = "dcf", lib = "hausse des charges fixes", defaut = "20000"},
+    {cle = "ca", lib = "CAN", defaut = "800000", aide = "Chiffre d'affaires net de l'exercice (CR)."},
+    {cle = "ach", lib = "Achats (PRAMA)", defaut = "360000", aide = "Achats de marchandises au PRA (PRAMA)."},
+    {cle = "aug", lib = "Augmentation de stock (− = diminution)", defaut = "40000", aide = "Variation de stock : augmentation positive, diminution en négatif. PRAMV = PRAMA − augmentation."},
+    {cle = "cf", lib = "Charges fixes", defaut = "120000", aide = "Charges fixes de l'exercice (2e degré)."},
+    {cle = "cab", lib = "CA du budget (0 = non)", defaut = "760000", aide = "CA prévu au budget (pour le BN budgété). 0 = non demandé."},
+    {cle = "dt", lib = "Baisse du taux en points (− = hausse)", defaut = "2", aide = "Baisse du taux de marge brute en points de % (ex. 2) ; hausse en négatif."},
+    {cle = "dcf", lib = "Hausse des charges fixes", defaut = "20000", aide = "Augmentation des charges fixes au budget (0 si aucune)."},
   }
   local function budget(v)
     vider()
@@ -340,11 +343,11 @@ do
 
   ------------------------------------------------------------------ B7 CR prévisionnel à 2 degrés et date du point mort
   local CH_P = {
-    {cle = "ca", lib = "CA budgété", defaut = "8200000"},
-    {cle = "t", lib = "taux de marge brute (% du CA)", defaut = "60%"},
-    {cle = "pers", lib = "charges de personnel", defaut = "1200000"},
-    {cle = "autres", lib = "autres charges", defaut = "400000"},
-    {cle = "amort", lib = "amortissements", defaut = "280000"},
+    {cle = "ca", lib = "CA budgété", defaut = "8200000", aide = "Chiffre d'affaires prévu pour l'année (budget)."},
+    {cle = "t", lib = "Taux de marge brute (% du CA)", defaut = "60%", aide = "Taux de marge brute en % du CA (ex. 60%). Charges de marchandises = CA × (100 % − taux)."},
+    {cle = "pers", lib = "Charges de personnel", defaut = "1200000", aide = "Charges de personnel prévues (charge fixe)."},
+    {cle = "autres", lib = "Autres charges", defaut = "400000", aide = "Autres charges fixes prévues (loyer, énergie, publicité…)."},
+    {cle = "amort", lib = "Amortissements", defaut = "280000", aide = "Amortissements prévus (charge fixe)."},
   }
   local function crPrev(v)
     vider()
@@ -383,12 +386,12 @@ do
 
   ------------------------------------------------------------------ B5 graphique du seuil
   local CH_G = {
-    {cle = "pv", lib = "prix de vente unitaire", defaut = "15"},
-    {cle = "cv", lib = "coût variable unitaire", defaut = "9"},
-    {cle = "cf", lib = "coûts fixes", defaut = "150000"},
-    {cle = "bn", lib = "bénéfice net visé (0 = non)", defaut = "30000"},
-    {cle = "pn", lib = "perte nette visée (0 = non)", defaut = "60000"},
-    {cle = "qmax", lib = "quantité max. de l'axe (0 = auto)", defaut = "30000"},
+    {cle = "pv", lib = "Prix de vente unitaire", defaut = "15", aide = "Prix de vente unitaire : pente de la droite du CAN."},
+    {cle = "cv", lib = "Coût variable unitaire", defaut = "9", aide = "Coût variable unitaire : MB unitaire = PV − CV (pente de la droite de MB)."},
+    {cle = "cf", lib = "Coûts fixes", defaut = "150000", aide = "Coûts fixes : droite horizontale."},
+    {cle = "bn", lib = "Bénéfice net visé (0 = non)", defaut = "30000", aide = "Bénéfice net visé à placer sur le graphique (0 = non)."},
+    {cle = "pn", lib = "Perte nette visée (0 = non)", defaut = "60000", aide = "Perte nette à placer sur le graphique (montant positif ; 0 = non)."},
+    {cle = "qmax", lib = "Quantité max. de l'axe (0 = auto)", defaut = "30000", aide = "Quantité au bout de l'axe horizontal (0 = choisie automatiquement)."},
   }
   local function seuilGraphe(v)
     vider()
@@ -423,12 +426,12 @@ do
 
   ------------------------------------------------------------------ B6 licence : quantité, prix minimum, baisse de prix
   local CH_L = {
-    {cle = "pa", lib = "prix de revient d'achat unitaire", defaut = "80"},
-    {cle = "cmin", lib = "commande minimale", defaut = "5000"},
-    {cle = "pv", lib = "prix de vente", defaut = "120"},
-    {cle = "cf", lib = "charges fixes annuelles", defaut = "180000"},
-    {cle = "bn", lib = "bénéfice net visé", defaut = "50000"},
-    {cle = "baisse", lib = "réduction du prix de vente", defaut = "10%"},
+    {cle = "pa", lib = "Prix de revient d'achat unitaire", defaut = "80", aide = "Prix de revient d'achat d'une unité (coût variable unitaire)."},
+    {cle = "cmin", lib = "Commande minimale", defaut = "5000", aide = "Commande minimale imposée (quantité) : marge minimale = CF ÷ commande minimale."},
+    {cle = "pv", lib = "Prix de vente", defaut = "120", aide = "Prix de vente unitaire actuel."},
+    {cle = "cf", lib = "Charges fixes annuelles", defaut = "180000", aide = "Charges fixes annuelles à couvrir."},
+    {cle = "bn", lib = "Bénéfice net visé", defaut = "50000", aide = "Bénéfice net visé : quantité = (CF + BN) ÷ marge unitaire."},
+    {cle = "baisse", lib = "Réduction du prix de vente", defaut = "10%", aide = "Réduction du prix de vente (en % ou en CHF) : nouveau seuil et augmentation du volume."},
   }
   local function licenceCorps(v)
     local pa, cmin, pv, cf, bn, b = v.pa or 0, v.cmin or 0, v.pv or 0, v.cf or 0, v.bn or 0, v.baisse or 0
@@ -490,12 +493,12 @@ do
 
   ------------------------------------------------------------------ B8 lot acheté, changement de prix en cours de vente
   local CH_LOT = {
-    {cle = "qa", lib = "quantité achetée", defaut = "600"},
-    {cle = "pa", lib = "prix d'achat unitaire", defaut = "6"},
-    {cle = "pv", lib = "prix de vente initial", defaut = "11"},
-    {cle = "cf", lib = "charges générales (fixes)", defaut = "1700"},
-    {cle = "qv", lib = "quantité déjà vendue", defaut = "60"},
-    {cle = "npv", lib = "nouveau prix de vente", defaut = "9"},
+    {cle = "qa", lib = "Quantité achetée", defaut = "600", aide = "Quantité achetée (le lot complet)."},
+    {cle = "pa", lib = "Prix d'achat unitaire", defaut = "6", aide = "Prix d'achat d'une unité."},
+    {cle = "pv", lib = "Prix de vente initial", defaut = "11", aide = "Prix de vente du début de la saison."},
+    {cle = "cf", lib = "Charges générales (fixes)", defaut = "1700", aide = "Charges générales (fixes) à couvrir par la vente du lot."},
+    {cle = "qv", lib = "Quantité déjà vendue", defaut = "60", aide = "Unités déjà vendues à l'ancien prix."},
+    {cle = "npv", lib = "Nouveau prix de vente", defaut = "9", aide = "Prix de vente après le changement."},
   }
   local function lot(v)
     vider()
@@ -536,11 +539,11 @@ do
 
   ------------------------------------------------------------------ B9 taux de remplissage, recettes annexes
   local CH_R = {
-    {cle = "cap", lib = "capacité (places)", defaut = "120"},
-    {cle = "cf", lib = "coûts fixes par vol", defaut = "30000"},
-    {cle = "cv", lib = "frais variables par passager", defaut = "40"},
-    {cle = "pv", lib = "prix payé par passager", defaut = "300"},
-    {cle = "ra", lib = "recettes annexes (fret) par vol", defaut = "5000"},
+    {cle = "cap", lib = "Capacité (places)", defaut = "120", aide = "Nombre de places disponibles (capacité du vol)."},
+    {cle = "cf", lib = "Coûts fixes par vol", defaut = "30000", aide = "Coûts fixes d'un vol."},
+    {cle = "cv", lib = "Frais variables par passager", defaut = "40", aide = "Frais variables par passager transporté."},
+    {cle = "pv", lib = "Prix payé par passager", defaut = "300", aide = "Prix payé par un passager."},
+    {cle = "ra", lib = "Recettes annexes (fret) par vol", defaut = "5000", aide = "Recettes annexes (fret) par vol : se déduisent des coûts fixes (44.15)."},
   }
   local function remplissage(v)
     vider()
@@ -595,9 +598,9 @@ do
 
   ------------------------------------------------------------------ X1 marge de sécurité, levier opérationnel (hors cours)
   local CH_S = {
-    {cle = "ca", lib = "CAN", defaut = "800000"},
-    {cle = "cv", lib = "charges variables (PRAMV)", defaut = "320000"},
-    {cle = "cf", lib = "charges fixes", defaut = "120000"},
+    {cle = "ca", lib = "CAN", defaut = "800000", aide = "CA net (CAN) de la période."},
+    {cle = "cv", lib = "Charges variables (PRAMV)", defaut = "320000", aide = "Charges variables (PRAMV) de la période."},
+    {cle = "cf", lib = "Charges fixes", defaut = "120000", aide = "Charges fixes de la période."},
   }
   local function securite(v)
     vider()
@@ -668,6 +671,25 @@ do
     montrer("Multiproduits")
   end
   SOLVEURS.multi = lancer(CH_M, multi)
+  local DEF_PROD = {{"20", "12", "3"}, {"50", "30", "1"}, {"0", "0", "0"}}
+  local function qMulti()
+    COMMUN.questionnaire("Multiproduits", COMMUN.repeter({
+      {groupe = "Produit", n = {cle = "np", lib = "Combien de produits ? (1 à 3)", defaut = "2", max = 3,
+        aide = "Produits vendus ensemble selon un mix constant (exemple hors cours : 2 produits)."},
+        champs = function(j) local d = DEF_PROD[j] or {"", "", ""}; return {
+          {cle = "p", lib = "prix de vente unitaire", defaut = d[1], aide = "Prix de vente d'une unité du produit."},
+          {cle = "c", lib = "coût variable unitaire", defaut = d[2], aide = "Coût variable d'une unité : MB unitaire = PV − CV."},
+          {cle = "m", lib = "part dans le mix", defaut = d[3], aide = "Quantités relatives vendues (ex. 3 pour 1) : sert à pondérer la MB."}} end},
+      {cle = "cf", lib = "Charges fixes communes", defaut = "44000", aide = "Charges fixes de l'entreprise, couvertes par la MB de tous les produits."},
+    }), function(v)
+      local t, n = {}, COMMUN.entier(v.np, 0)
+      for j = 1, 3 do
+        for _, k in ipairs({"p", "c", "m"}) do t[#t + 1] = k .. j .. "=" .. (j <= n and (v._txt[k .. "_" .. j] or "") or "0") end
+      end
+      t[#t + 1] = "cf=" .. (v._txt.cf or "")
+      multi(COMMUN.lireChamps(table.concat(t, ";"), CH_M))
+    end)
+  end
 
   ------------------------------------------------------------------ menu
   ------------------------------------------------------------------ B11 lecture inverse du graphique du seuil
@@ -755,6 +777,26 @@ do
     montrer("Lecture du graphique")
   end
   SOLVEURS.lectureGraphe = lancer(CH_LG, lectureGraphe)
+  local function qLecture()
+    local seg = {}
+    for _, c in ipairs(CH_LG) do if c.cle ~= "bn" and c.cle ~= "cas" and c.cle ~= "qs" then seg[#seg + 1] = c end end
+    local function grp(nom, cle, lib, nlib, def, aide)
+      return {groupe = nom, n = {cle = "n" .. cle, lib = nlib, defaut = tostring(#def), min = 0, max = 6, aide = aide},
+        champs = function(j) return {{cle = cle, lib = lib, defaut = def[j] or "", aide = aide}} end}
+    end
+    seg[#seg + 1] = grp("Résultat", "bn", "bénéfice visé (perte en −)", "Combien de résultats visés ? (0 à 6)", {"50000"},
+      "Bénéfice net visé, perte nette en négatif (test 2025 ex. 8 : 0, 30000, -60000) → CA et quantité.")
+    seg[#seg + 1] = grp("CA", "cas", "CA lu ou donné", "Combien de CA pour un résultat ? (0 à 6)", {},
+      "CA pour lequel on cherche le bénéfice ou la perte (lu sur l'axe vertical ou donné).")
+    seg[#seg + 1] = grp("Quantité", "qs", "quantité lue ou donnée", "Combien de quantités pour un résultat ?", {},
+      "Quantité pour laquelle on cherche le bénéfice ou la perte (lue sur l'axe horizontal).")
+    COMMUN.questionnaire("Lecture du graphique", COMMUN.repeter(seg), function(v)
+      local t = {}
+      for _, c in ipairs(seg) do if c.cle then t[#t + 1] = c.cle .. "=" .. (v._txt[c.cle] or "") end end
+      for _, k in ipairs({"bn", "cas", "qs"}) do t[#t + 1] = k .. "=" .. suiteGroupe(v, k, COMMUN.entier(v["n" .. k], 0)) end
+      lectureGraphe(COMMUN.lireChamps(table.concat(t, ";"), CH_LG))
+    end)
+  end
 
   local SM = COMMUN.sousMenu
   -- forts / mots / si : index de la recherche (99_menu) ; radicaux sans accents (voir CONVENTIONS-MODULES.md)
@@ -781,7 +823,7 @@ do
       {"Tracer le graphique (montrer)", menu("Graphique du seuil", CH_G, seuilGraphe),
         forts = "graph montrer representer tracer", mots = "droite point mort seuil chiffre affaires realiser perte benefice nette quantite",
         si = "« montrer graphiquement » : tracer 4 droites"},
-      {"Lire le graphique (inverse)", function() COMMUN.questionnaire("Lecture du graphique", CH_LG, function(v) lectureGraphe(v) end) end,
+      {"Lire le graphique (inverse)", qLecture,
         forts = "lire lu lecture partir inverse", mots = "graph prix vente unitaire chiffre affaires point mort seuil quantite benefice perte resultat",
         si = "valeurs lues sur le graphique → PV, PM, BN"},
     }),
@@ -804,7 +846,7 @@ do
       {"Marge de sécurité, levier (hors cours)", menu("Marge de sécurité", CH_S, securite),
         forts = "securite levier operationnel", mots = "marge",
         si = "hors cours"},
-      {"Seuil multiproduits (hors cours)", menu("Multiproduits", CH_M, multi),
+      {"Seuil multiproduits (hors cours)", qMulti,
         forts = "multiproduit mix", mots = "plusieurs produits seuil",
         si = "hors cours"},
     }),

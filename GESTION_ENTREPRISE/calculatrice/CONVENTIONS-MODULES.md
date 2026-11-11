@@ -55,7 +55,20 @@ chiffres 1-9 restent au menu. Le moteur lit la table globale `INDEX_SOLVEURS`, a
     Touches affichées dans l'invite : ENTER garde, `<` (seul ou en fin de saisie) = question précédente, `!` = tout le reste par défaut, vide (ou `-`) = ignoré.
     Expressions acceptées (`15+10+30`) ; `v._txt[cle]` garde le texte saisi (pour réécrire la composition : `COMMUN.exprTexte("35+30")` → « 35 + 30 »).
     `brut` = « cle=texte;… », donc un solveur qui lit `COMMUN.lireChamps(brut, champs)` marche aussi avec des arguments directs dans les tests ;
-  - formulaire une ligne (ancien) : `COMMUN.formulaire(titre, champs, function(v, brut) … end)` (saisie « ca=1000000;cv=600000 », `%` accepté, `12'500` accepté) ;
+  - **Règle (11.11.2026, exigence de l'utilisateur) : une donnée = un champ. Saisie sur une ligne interdite** dans tout menu : pas de
+    « clé=valeur;… », pas de listes séparées par `;` / `,` / espaces, pas de « nom=montant » dans un seul champ, pas de tableau tapé en une ligne.
+    Chaque question a un `lib` clair (mots du prof), une `aide` d'une ligne (d'où vient la donnée, comment elle se calcule), un `defaut` = valeur du
+    corrigé du prof ; facultatif = `opt = true` (vide = ignoré). `COMMUN.formulaire` a été supprimé.
+  - **Données en nombre variable** (comptes, titres, années, sections, mois, flux…) : `COMMUN.questionnaire(titre, COMMUN.repeter(segments), suite)`.
+    `segments` = champs simples et groupes dans l'ordre ; groupe = `{groupe = "Compte", n = {cle = "n", lib = "Combien de comptes ?", defaut = "4",
+    max = 12, min = 1, aide = "…"}, champs = function(j, val) return {{cle = "nom", …}, {cle = "vci", …}} end}` → « Combien de comptes ? », puis
+    pour chaque élément ses champs un par un, posés « Compte 2/4 — valeur réelle au 1.1 » (clé `vci_2`). `nombre = function(val) … end` à la place
+    de `n` : nombre tiré des réponses précédentes, sans question ; `brut = true` : libellés gardés tels quels. Une donnée à plusieurs colonnes
+    (N-1 et N, début / fin) = une question par cellule. Tout est un seul questionnaire : `<` remonte jusqu'à « Combien », `!` garde les défauts
+    pour tout le reste. Lecture : `COMMUN.elements(v, n, {"nom", "vci"})`, `COMMUN.entier(v.n, 0)`, `COMMUN.lu(val, cle, defaut)` dans les champs.
+  - Les **solveurs** gardent leur format interne (« cle=valeur;… », « Nom:v1/v2 », …) pour les tests en arguments directs ; le questionnaire
+    du menu le reconstruit (`COMMUN.bloc("2/3")` → « (2/3) » pour une valeur qui contient un séparateur). Contrôle après modification : ENTER
+    partout dans `--menu` doit redonner exactement le document d'avant.
   - `COMMUN.num(s)`, `COMMUN.pct(x)` → « 14.44 % », `COMMUN.dec2(x)`, `COMMUN.calc(nom, formule, application, resultat)`,
     `COMMUN.commentaire(valeur, norme, ok, consequence)`.
   - Ne PAS utiliser `M(...)` avec des formules (pas de CAS en compta) : écrire les formules en texte (`X`, `calc`).
