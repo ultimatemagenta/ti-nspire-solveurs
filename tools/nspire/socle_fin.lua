@@ -273,8 +273,15 @@ local function mesureCompacte(gc, e, w, dispo)
   local ht = (e.titre and e.titre ~= "") and 12 or 0
   local nr = math.max(#rows, 1)
   if not dispo or dispo < ht + nr * 9 + 2 then dispo = 212 - 36 - 2 end
-  local rh = math.max(9, math.min(13, math.floor((dispo - ht - 2) / nr)))
-  local f0 = rh >= 12 and 9 or (rh >= 10 and 8 or 7)
+  -- hauteur de ligne = hauteur reelle de la police (sinon les traits coupent le haut des chiffres) :
+  -- plus grande police dont toutes les lignes tiennent dans la place libre
+  local f0, rh
+  for f = 9, 7, -1 do
+    gc:setFont("sansserif", "r", f)
+    rh = gc:getStringHeight("0Lg") + 1
+    f0 = f
+    if ht + nr * rh + 2 <= dispo then break end
+  end
   local L
   for f = f0, 7, -1 do
     for avecEnt = 1, 0, -1 do       -- d'abord en-tetes entiers, sinon en-tetes tronques a la largeur des valeurs
@@ -289,7 +296,9 @@ local function mesureCompacte(gc, e, w, dispo)
       end
       local tot = wl
       for j = 1, ncol do wc[j] = math.max(wc[j], 14); tot = tot + wc[j] end
-      L = {f = f, rh = rh, wl = wl, wc = wc, tot = tot, ht = ht, ncol = ncol, nr = #rows}
+      gc:setFont("sansserif", "r", f)
+      local rhf = math.max(rh, gc:getStringHeight("0Lg") + 1)
+      L = {f = f, rh = rhf, wl = wl, wc = wc, tot = tot, ht = ht, ncol = ncol, nr = #rows}
       if tot <= w - 2 then break end
     end
     if L.tot <= w - 2 then break end
@@ -314,7 +323,7 @@ local function dessinerCompacte(gc, e, x0, y0, w)
     y = y + L.ht
   end
   local ytab = y
-  local dy = math.max(0, math.floor((L.rh - L.f - 4) / 2))
+  local dy = 0
   local function rang(c, l, ent)
     if ent then gc:setColorRGB(220, 230, 250); gc:fillRect(x0, y, w - 2, L.rh)
     elseif l.fond then gc:setColorRGB(235, 240, 250); gc:fillRect(x0, y, w - 2, L.rh) end

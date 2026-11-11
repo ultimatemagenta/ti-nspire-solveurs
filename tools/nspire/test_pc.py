@@ -29,7 +29,8 @@ math.evalStr = function() return nil end
 local gcm = {}
 gcm.__index = function(t, k)
   if k == "getStringWidth" then return function(_, s) return 6 * #tostring(s) end end
-  if k == "getStringHeight" then return function() return 12 end end
+  if k == "getStringHeight" then return function() return math.floor((GC_TAILLE or 9) * 1.5 + 0.5) end end
+  if k == "setFont" then return function(_, fam, st, t) GC_TAILLE = t end end
   return noop
 end
 GC = setmetatable({}, gcm)

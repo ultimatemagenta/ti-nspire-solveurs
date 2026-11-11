@@ -379,12 +379,12 @@ SOLVEURS_GLOBAL = SOLVEURS
 local function GRILLE(titre, lignes, opts)
   -- lignes : {{"libelle", "montant", "montant2"…, gras=true, trait=true}} ; opts.entetes = {"", "N", "N-1"}
   -- opts.compact = true : grille compacte qui tient sur un ecran (police 9 -> 7, lignes 13 -> 9 px, colonnes mesurees,
-  --   titre facultatif) ; plus de opts.max lignes (13 par defaut) : tableaux successifs « titre (1/2) », chacun sur un ecran.
+  --   titre facultatif) ; plus de opts.max lignes (10 par defaut) : tableaux successifs « titre (1/2) », chacun sur un ecran.
   --   opts.pos : rang d'insertion dans le document (2 = juste sous le titre) ; opts.legende : ligne grise en petit sous les tableaux.
   opts = opts or {}
   if not opts.compact then table.insert(DOC, {k = "grille", titre = titre, lignes = lignes, opts = opts}); return end
   local n, k = #lignes, 0
-  local nb = math.max(1, math.ceil(n / (opts.max or 13)))
+  local nb = math.max(1, math.ceil(n / (opts.max or 10)))
   local par = math.ceil(n / nb)
   local function poser(e) if opts.pos then table.insert(DOC, opts.pos + k, e) else table.insert(DOC, e) end; k = k + 1 end
   for c = 1, nb do
